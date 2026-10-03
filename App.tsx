@@ -1,20 +1,22 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
 
+import { AuthProvider } from '@/context/AuthContext';
+import RootNavigator from '@/navigation/RootNavigator';
+
+/**
+ * ══════════════════════════════════════════════════════
+ * Raíz de VisionCare AI móvil — estructura definitiva:
+ *
+ *   AuthProvider (sesión + preferencias accesibilidad)
+ *     └── RootNavigator (Stack → LoginStack | AppTabs)
+ *
+ * ══════════════════════════════════════════════════════
+ */
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <AuthProvider>
+      <RootNavigator />
+      <StatusBar style="light" />
+    </AuthProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

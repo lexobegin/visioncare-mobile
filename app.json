@@ -1,25 +1,58 @@
 {
   "expo": {
-    "name": "visioncare-mobile",
+    "name": "VisionCare AI",
     "slug": "visioncare-mobile",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.visioncare.ai",
+      "infoPlist": {
+        "NSCameraUsageDescription": "VisionCare AI necesita la cámara para analizar tu entorno, leer textos y reconocer billetes.",
+        "NSMicrophoneUsageDescription": "VisionCare AI necesita el micrófono para que puedas dar comandos por voz.",
+        "NSSpeechRecognitionUsageDescription": "VisionCare AI usa el reconocimiento de voz para entender tus comandos.",
+        "NSLocationWhenInUseUsageDescription": "VisionCare AI necesita tu ubicación para la navegación asistida y para compartir tu posición con contactos de confianza en emergencias."
+      }
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false
+      "package": "com.visioncare.ai",
+      
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite a VisionCare AI usar la cámara para asistirte visualmente."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Permite a VisionCare AI usar tu ubicación para navegación y emergencias."
+        }
+      ],
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-speech-recognition"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "00000000-0000-0000-0000-000000000000"
+      }
     }
   }
 }
