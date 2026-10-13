@@ -1,7 +1,5 @@
 // ══════════ visioncare-mobile/src/api/capturas.api.ts ══════════
 
-import { Platform } from 'react-native';
-
 import type { CapturaResponse, RespuestaPaginada } from '@/types';
 import { api } from './client';
 
@@ -17,6 +15,7 @@ export async function registrarCaptura(params: {
   uri: string;
   mimeType?: string;
   reconocer?: boolean;
+  accion_app?: string;
   latitud?: number;
   longitud?: number;
   origen?: 'CAMARA' | 'GALERIA';
@@ -25,21 +24,22 @@ export async function registrarCaptura(params: {
     uri,
     mimeType = 'image/jpeg',
     reconocer = true,
+    accion_app,
     latitud,
     longitud,
     origen = 'CAMARA',
   } = params;
 
   const formData = new FormData();
-  // RN: el objeto con uri/name/type es el "archivo"
+  // React Native convierte { uri, name, type } en la parte binaria del multipart.
   formData.append('imagen', {
-    // iOS corta el ?... del URI de la galería (ph://)
-    uri: Platform.OS === 'ios' && uri.startsWith('file://') ? uri : uri,
+    uri,
     name: `captura-${Date.now()}.jpg`,
     type: mimeType,
   } as unknown as Blob);
   formData.append('reconocer', String(reconocer));
   formData.append('origen', origen);
+  if (accion_app) formData.append('accion_app', accion_app);
   if (latitud !== undefined) formData.append('latitud', String(latitud));
   if (longitud !== undefined) formData.append('longitud', String(longitud));
 

@@ -9,10 +9,13 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 
 import { registrarCaptura } from '@/api/capturas.api';
 import { colores, tamaños } from '@/constants/tema';
 import { useTTS } from '@/hooks/useTTS';
+import type { AppTabsParamList } from '@/navigation/NavigationTypes';
 import { obtenerUbicacion } from '@/services/location.service';
 import { mensajeDeError, type CapturaResponse } from '@/types';
 
@@ -35,8 +38,16 @@ import { mensajeDeError, type CapturaResponse } from '@/types';
 
 const MAX_HISTORIAL = 5;
 
+interface CapturaPendiente {
+  uri: string;
+  latitud?: number;
+  longitud?: number;
+}
+
 export default function PantallaCamara() {
   const { anunciar } = useTTS();
+  const route = useRoute<RouteProp<AppTabsParamList, 'Camara'>>();
+  const accion = route.params?.accion;
 
   // ─── Cámara (API moderna de expo-camera) ───
   const camaraRef = useRef<CameraView>(null);
@@ -49,6 +60,8 @@ export default function PantallaCamara() {
     useState<CapturaResponse | null>(null);
   const [historial, setHistorial] = useState<CapturaResponse[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [capturaPendiente, setCapturaPendiente] =
+    useState<CapturaPendiente | null>(null);
 
   // Anuncio de pantalla
   useEffect(() => {
@@ -59,45 +72,24 @@ export default function PantallaCamara() {
 
   // ═══════════════ CAPTURA ═══════════════
 
-  const capturar = useCallback(async () => {
-    if (procesando || !camaraLista) return;
-
-    setProcesando(true);
-    setError(null);
-    anunciar('Capturando', { forzar: true });
-
+  const enviarCaptura = useCallback(async (captura: CapturaPendiente) => {
     try {
-      // ─── 1. Tomar la foto ───
-      const foto = await camaraRef.current?.takePictureAsync({
-        quality: 0.7,
-        skipProcessing: false, // Android: corrige rotación EXIF
-      });
-
-      if (!foto?.uri) {
-        throw new Error('No se pudo capturar la imagen. Intenta de nuevo.');
-      }
-
-      // ─── 2. GPS (silencioso — null si no hay fix) ───
-      const ubicacion = await obtenerUbicacion();
-
-      // ─── 3. Enviar al backend (→ R2 → FastAPI → YOLO) ───
       const respuesta = await registrarCaptura({
-        uri: foto.uri,
+        uri: captura.uri,
         reconocer: true,
+        accion_app: accion,
         origen: 'CAMARA',
-        ...(ubicacion && {
-          latitud: ubicacion.latitud,
-          longitud: ubicacion.longitud,
-        }),
+        ...(captura.latitud !== undefined && { latitud: captura.latitud }),
+        ...(captura.longitud !== undefined && { longitud: captura.longitud }),
       });
 
-      // ─── 4. Resultados ───
       setUltimoResultado(respuesta);
       setHistorial((prev) =>
         [respuesta, ...prev].slice(0, MAX_HISTORIAL),
       );
+      setCapturaPendiente(null);
+      setError(null);
 
-      // ─── 5. Anuncio por voz (siempre hay algo que decir) ───
       if (respuesta.resumen_voz) {
         anunciar(respuesta.resumen_voz, { forzar: true });
       } else if (respuesta.estado === 'PROCESADA') {
@@ -113,11 +105,56 @@ export default function PantallaCamara() {
     } catch (e) {
       const m = mensajeDeError(e);
       setError(m);
-      anunciar(`Error. ${m}`, { forzar: true });
+      anunciar(`No se pudo enviar la captura. ${m}`, { forzar: true });
+    }
+  }, [accion, anunciar]);
+
+  const capturar = useCallback(async () => {
+    if (procesando || !camaraLista || capturaPendiente) return;
+
+    setProcesando(true);
+    setError(null);
+    anunciar('Capturando', { forzar: true });
+
+    try {
+      const foto = await camaraRef.current?.takePictureAsync({
+        quality: 0.7,
+        skipProcessing: false,
+      });
+
+      if (!foto?.uri) {
+        throw new Error('No se pudo capturar la imagen. Intenta de nuevo.');
+      }
+
+      const ubicacion = await obtenerUbicacion();
+      const captura: CapturaPendiente = {
+        uri: foto.uri,
+        ...(ubicacion && {
+          latitud: ubicacion.latitud,
+          longitud: ubicacion.longitud,
+        }),
+      };
+      setCapturaPendiente(captura);
+      await enviarCaptura(captura);
+    } catch (e) {
+      const m = mensajeDeError(e);
+      setError(m);
+      anunciar(`Error al capturar la imagen. ${m}`, { forzar: true });
     } finally {
       setProcesando(false);
     }
-  }, [procesando, camaraLista, anunciar]);
+  }, [procesando, camaraLista, capturaPendiente, anunciar, enviarCaptura]);
+
+  const reintentarEnvio = useCallback(async () => {
+    if (!capturaPendiente || procesando) return;
+    setProcesando(true);
+    setError(null);
+    try {
+      await enviarCaptura(capturaPendiente);
+    } finally {
+      setProcesando(false);
+    }
+  }, [capturaPendiente, procesando, enviarCaptura]);
 
   // ═══════════════ PERMISOS ═══════════════
 
@@ -195,16 +232,21 @@ export default function PantallaCamara() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            camaraLista
+            capturaPendiente
+              ? 'Hay una captura pendiente de envío. Reintenta el envío antes de tomar otra foto.'
+              : camaraLista
               ? 'Capturar y analizar entorno'
               : 'Preparando cámara, espera un momento'
           }
-          accessibilityState={{ busy: procesando, disabled: !camaraLista }}
+          accessibilityState={{
+            busy: procesando,
+            disabled: !camaraLista || Boolean(capturaPendiente),
+          }}
           onPress={() => void capturar()}
-          disabled={procesando || !camaraLista}
+          disabled={procesando || !camaraLista || Boolean(capturaPendiente)}
           style={({ pressed }) => [
             estilos.botonCaptura,
-            (!camaraLista || procesando) && { opacity: 0.5 },
+            (!camaraLista || procesando || capturaPendiente) && { opacity: 0.5 },
             pressed && !procesando && camaraLista && { transform: [{ scale: 0.93 }] },
           ]}
         >
@@ -226,6 +268,25 @@ export default function PantallaCamara() {
           contentContainerStyle={estilos.panelContenido}
           nestedScrollEnabled
         >
+          {capturaPendiente && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Reintentar el envío de la captura pendiente"
+              accessibilityState={{ busy: procesando, disabled: procesando }}
+              onPress={() => void reintentarEnvio()}
+              disabled={procesando}
+              style={({ pressed }) => [
+                estilos.botonReintentar,
+                pressed && !procesando && { opacity: 0.75 },
+                procesando && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={estilos.textoReintentar}>
+                {procesando ? 'Enviando captura…' : '↻  Reintentar envío'}
+              </Text>
+            </Pressable>
+          )}
+
           {/* Último resultado */}
           {ultimoResultado ? (
             <View style={estilos.resultado}>
@@ -520,6 +581,22 @@ const estilos = StyleSheet.create({
   panelContenido: {
     padding: tamaños.md,
     paddingBottom: tamaños.lg,
+    gap: tamaños.sm,
+  },
+  botonReintentar: {
+    minHeight: tamaños.touchMin,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: tamaños.radioMD,
+    borderWidth: 1,
+    borderColor: colores.advertencia,
+    backgroundColor: colores.advertenciaFondo,
+    paddingHorizontal: tamaños.md,
+  },
+  textoReintentar: {
+    color: colores.advertencia,
+    fontSize: tamaños.fuenteSM,
+    fontWeight: '700',
   },
   panelVacio: {
     color: colores.textoSutil,

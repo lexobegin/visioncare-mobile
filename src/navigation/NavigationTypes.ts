@@ -27,9 +27,21 @@ export type LoginStackParamList = {
 export type AppTabsParamList = {
   Inicio: undefined;
   Voz: undefined;
-  Camara: undefined;
+  Camara: { accion?: AccionAnalisisVisual } | undefined;
   Mas: NavigatorScreenParams<MasStackParamList>;
 };
+
+export type AccionAnalisisVisual =
+  | 'RECONOCER_OBJETOS'
+  | 'CAPTURAR_ENTORNO'
+  | 'ABRIR_CAMARA'
+  | 'LEER_TEXTO'
+  | 'DESCRIBIR_ENTORNO'
+  | 'DETECTAR_OBSTACULOS'
+  | 'RECONOCER_SENALES'
+  | 'RECONOCER_PRODUCTOS'
+  | 'RECONOCER_COLORES'
+  | 'RECONOCER_BILLETES';
 
 // ─── Stack interno de "Más" ───
 export type MasStackParamList = {

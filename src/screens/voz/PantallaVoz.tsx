@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -11,16 +12,21 @@ import {
 } from 'react-native';
 
 import { interpretarComando } from '@/api/voz.api';
+import { listarMisContactos } from '@/api/contactos.api';
 import { Alerta } from '@/components/Alerta';
 import { Boton } from '@/components/Boton';
 import { colores, tamaños } from '@/constants/tema';
 import { useAuth } from '@/context/AuthContext';
 import { useTTS } from '@/hooks/useTTS';
-import type { AppTabsParamList } from '@/navigation/NavigationTypes';
+import type {
+  AccionAnalisisVisual,
+  AppTabsParamList,
+} from '@/navigation/NavigationTypes';
 import {
   cancelarEscucha,
   escucharUnaVez,
 } from '@/services/stt.service';
+import { obtenerUbicacion } from '@/services/location.service';
 import { useNavigation } from '@react-navigation/native';
 import type {
   BottomTabNavigationProp,
@@ -37,7 +43,7 @@ import { mensajeDeError } from '@/types';
  *        RECONOCER_OBJETOS / CAPTURAR_ENTORNO / LEER_TEXTO
  *          → navega a la Cámara (Tanda 10 ejecuta el análisis)
  *        ABRIR_SOLICITUD_AYUDA / COMPARTIR_UBICACION
- *          → Sprint 3 (por ahora: anuncio de preparación)
+ *          → prepara SMS para contacto autorizado (confirmación manual)
  *        VER_HISTORIAL / NINGUNA (desconocida)
  *          → solo respuesta hablada
  *   4. respuesta_voz → TTS (siempre, es la respuesta del sistema)
@@ -52,6 +58,7 @@ interface EntradaSesion {
   id: string;
   comando: string;
   intencion: string;
+  accion: string;
   fuente: '🎤' | '⌨️';
 }
 
@@ -88,11 +95,74 @@ export default function PantallaVoz() {
 
   // ═══════════════ EJECUTOR DE ACCIONES ═══════════════
 
+  /** Abre un borrador SMS para el contacto activo autorizado de mayor prioridad. */
+  const contactarContactoDeConfianza = useCallback(
+    async (accion: 'ABRIR_SOLICITUD_AYUDA' | 'COMPARTIR_UBICACION') => {
+      const esAyuda = accion === 'ABRIR_SOLICITUD_AYUDA';
+      setEstado(esAyuda ? 'Preparando solicitud de ayuda…' : 'Obteniendo ubicación…');
+
+      try {
+        const ubicacion = await obtenerUbicacion();
+        if (!esAyuda && !ubicacion) {
+          setEstado('No se pudo obtener la ubicación. Revisa el permiso y el GPS.');
+          anunciar('No pude obtener tu ubicación. Revisa el permiso y el GPS.', {
+            forzar: true,
+          });
+          return;
+        }
+
+        const respuesta = await listarMisContactos({
+          page: 1,
+          limit: 50,
+          estado: 'ACTIVO',
+        });
+        const contacto = respuesta.datos.find(
+          (item) =>
+            (esAyuda
+              ? item.autorizado_emergencias
+              : item.autorizado_ubicacion) &&
+            Boolean(item.telefono?.trim()),
+        );
+
+        if (!contacto?.telefono) {
+          setEstado(
+            esAyuda
+              ? 'No hay un contacto activo autorizado para emergencias con teléfono.'
+              : 'No hay un contacto activo autorizado para ubicación con teléfono.',
+          );
+          navigation.navigate('Mas', { screen: 'Contactos' });
+          return;
+        }
+
+        const enlaceMapa = ubicacion
+          ? `https://maps.google.com/?q=${ubicacion.latitud},${ubicacion.longitud}`
+          : null;
+        const mensaje = esAyuda
+          ? `Necesito ayuda.${enlaceMapa ? ` Mi ubicación: ${enlaceMapa}` : ' No pude obtener mi ubicación.'}`
+          : `Comparto mi ubicación: ${enlaceMapa}`;
+        const telefono = contacto.telefono.replace(/[^\d+]/g, '');
+        const separador = Platform.OS === 'ios' ? '&' : '?';
+
+        await Linking.openURL(
+          `sms:${telefono}${separador}body=${encodeURIComponent(mensaje)}`,
+        );
+        const confirmacion = `Se abrió un mensaje para ${contacto.nombre}. Revisa y confirma el envío.`;
+        setEstado(confirmacion);
+        anunciar(confirmacion, { forzar: true });
+      } catch (e) {
+        const m = mensajeDeError(e);
+        setError(m);
+        anunciar(`No pude preparar el mensaje. ${m}`, { forzar: true });
+      }
+    },
+    [anunciar, navigation],
+  );
+
   /** Ejecuta la accion_app devuelta por el backend */
   const ejecutarAccion = useCallback(
-    (accion: string) => {
+    async (accion: string) => {
       switch (accion) {
-        // ─── Flujos de cámara (Tanda 10 los completa) ───
+        // ─── Flujos de cámara ───
         case 'RECONOCER_OBJETOS':
         case 'CAPTURAR_ENTORNO':
         case 'ABRIR_CAMARA':
@@ -103,13 +173,14 @@ export default function PantallaVoz() {
         case 'RECONOCER_PRODUCTOS':
         case 'RECONOCER_COLORES':
         case 'RECONOCER_BILLETES':
-          navigation.navigate('Camara');
+          navigation.navigate('Camara', {
+            accion: accion as AccionAnalisisVisual,
+          });
           break;
 
-        // ─── Seguridad / ayuda (Sprint 3) ───
         case 'ABRIR_SOLICITUD_AYUDA':
         case 'COMPARTIR_UBICACION':
-          setEstado('La solicitud de ayuda estará disponible en el Sprint 3.');
+          await contactarContactoDeConfianza(accion);
           break;
 
         // ─── Solo informativas ───
@@ -123,14 +194,18 @@ export default function PantallaVoz() {
           break;
       }
     },
-    [navigation],
+    [contactarContactoDeConfianza, navigation],
   );
 
   // ═══════════════ FLUJO COMPARTIDO ═══════════════
 
   /** Envía el texto al backend, ejecuta la acción y habla */
   const procesarComando = useCallback(
-    async (comando: string, fuente: '🎤' | '⌨️') => {
+    async (
+      comando: string,
+      fuente: '🎤' | '⌨️',
+      confianzaStt?: number | null,
+    ) => {
       const limpio = comando.trim();
       if (!limpio || procesando) return;
 
@@ -141,15 +216,19 @@ export default function PantallaVoz() {
       try {
         const respuesta = await interpretarComando({
           comando: limpio,
+          ...(typeof confianzaStt === 'number' && {
+            confianza_stt: confianzaStt,
+          }),
         });
 
         // Registrar en historial de sesión
         setHistorial((prev) =>
           [
             {
-              id: `${Date.now()}`,
+              id: String(respuesta.id_comando),
               comando: respuesta.comando,
               intencion: respuesta.intencion,
+              accion: respuesta.accion_app,
               fuente,
             },
             ...prev,
@@ -166,7 +245,7 @@ export default function PantallaVoz() {
         );
 
         // Ejecutar la acción (puede navegar)
-        ejecutarAccion(respuesta.accion_app);
+        await ejecutarAccion(respuesta.accion_app);
       } catch (e) {
         const m = mensajeDeError(e);
         setError(m);
@@ -190,48 +269,77 @@ export default function PantallaVoz() {
 
     setError(null);
     setEscuchando(true);
-    setEstado('🎧 Escuchando… di tu comando');
-    anunciar('Te escucho', { forzar: true });
+    setError(null);
+    setEstado('Preparando el micrófono…');
 
-    const resultado = await escucharUnaVez();
+    try {
+      const resultado = await escucharUnaVez({
+        onInicio: () => {
+          setEstado('🎧 Escuchando… di tu comando');
+          anunciar('Te escucho', { forzar: true });
+        },
+        onParcial: (texto) => setEstado(`Te entendí: “${texto}”`),
+      });
 
-    if (!refMontado.current) return;
-    setEscuchando(false);
+      if (!refMontado.current) return;
+      setEscuchando(false);
 
-    if (resultado.ok) {
-      setEstado(`Reconocido: "${resultado.texto}"`);
-      await procesarComando(resultado.texto, '🎤');
-    } else {
+      if (resultado.ok) {
+        setEstado(`Reconocido: “${resultado.texto}”`);
+        await procesarComando(resultado.texto, '🎤', resultado.confianza);
+        return;
+      }
+
+      let mensajeError: string | null = null;
       switch (resultado.razon) {
         case 'no-disponible':
           setEstado('Reconocimiento no disponible — usa el teclado ↓');
-          anunciar(
-            'Reconocimiento de voz no disponible en este modo. Escribe tu comando abajo.',
-            { forzar: true },
-          );
+          mensajeError =
+            'El servicio de reconocimiento no está disponible en este dispositivo. Puedes escribir el comando abajo.';
           break;
         case 'permiso-denegado':
-          setEstado('Permiso de micrófono denegado');
-          anunciar(
-            'Necesito permiso del micrófono. Actívalo en ajustes o usa el teclado.',
-            { forzar: true },
-          );
+          setEstado('No se pudo acceder al micrófono');
+          mensajeError =
+            resultado.detalle === 'audio-capture'
+              ? 'No se pudo iniciar la captura del micrófono. Cierra otras apps que puedan estar usándolo y vuelve a intentarlo.'
+              : 'El permiso de micrófono o reconocimiento está denegado. Revísalo en los ajustes de la app y vuelve a intentarlo.';
           break;
         case 'sin-voz':
           setEstado('No escuché nada — intenta de nuevo');
-          anunciar('No escuché nada. Intenta de nuevo.');
+          mensajeError =
+            'No detecté voz. Mantén el teléfono cerca y prueba otra vez.';
           break;
         case 'timeout':
           setEstado('Tiempo agotado — intenta de nuevo');
-          anunciar('Tiempo agotado. Intenta de nuevo.');
+          mensajeError = 'La escucha tardó demasiado. Puedes volver a intentarlo.';
           break;
         case 'cancelado':
           setEstado('Escucha cancelada.');
           break;
         default:
           setEstado('Error de reconocimiento — intenta de nuevo');
-          anunciar('Hubo un error de reconocimiento. Intenta de nuevo.');
+          mensajeError = resultado.detalle
+            ? `Falló el reconocimiento de voz (${resultado.detalle}). Vuelve a intentarlo o usa el teclado.`
+            : 'Falló el reconocimiento de voz. Vuelve a intentarlo o usa el teclado.';
       }
+
+      setError(mensajeError);
+      if (resultado.razon !== 'cancelado') {
+        anunciar(
+          mensajeError ?? 'No se completó el reconocimiento. Puedes intentarlo otra vez.',
+          { forzar: true },
+        );
+      }
+    } catch (e) {
+      if (!refMontado.current) return;
+      setError(
+        e instanceof Error
+          ? `No se pudo iniciar la escucha: ${e.message}`
+          : 'No se pudo iniciar la escucha. Vuelve a intentarlo o usa el teclado.',
+      );
+      setEstado('Error de reconocimiento — intenta de nuevo');
+    } finally {
+      if (refMontado.current) setEscuchando(false);
     }
   }, [escuchando, anunciar, procesarComando]);
 
@@ -361,7 +469,7 @@ export default function PantallaVoz() {
                   {h.comando}
                 </Text>
                 <Text style={estilos.historialIntencion} numberOfLines={1}>
-                  → {h.intencion}
+                  → {h.intencion} · {h.accion}
                 </Text>
               </View>
             ))}
@@ -376,7 +484,7 @@ const estilos = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colores.fondo },
   contenido: {
     padding: tamaños.lg,
-    paddingBottom: tamaños.xl * 2,
+    paddingBottom: 120,
     gap: tamaños.md,
   },
 
