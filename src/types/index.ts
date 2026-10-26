@@ -241,3 +241,6 @@ export interface CapturaResponse {
   resumen_voz?: string | null;
   ia_disponible?: boolean;
 }
+
+// ─── Alertas (CU17 / CU18) ───
+export * from './alerta';

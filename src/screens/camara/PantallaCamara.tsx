@@ -16,8 +16,10 @@ import { registrarCaptura } from '@/api/capturas.api';
 import { colores, tamaños } from '@/constants/tema';
 import { useTTS } from '@/hooks/useTTS';
 import type { AppTabsParamList } from '@/navigation/NavigationTypes';
+import { alertasService } from '@/services/alertas.service';
+import { alertasVozService } from '@/services/alertasVoz.service';
 import { obtenerUbicacion } from '@/services/location.service';
-import { mensajeDeError, type CapturaResponse } from '@/types';
+import { mensajeDeError, type CapturaResponse, type AlertaRiesgo } from '@/types';
 
 /**
  * ══════════════════════════════════════════════════════
@@ -62,6 +64,22 @@ export default function PantallaCamara() {
   const [error, setError] = useState<string | null>(null);
   const [capturaPendiente, setCapturaPendiente] =
     useState<CapturaPendiente | null>(null);
+  const [alertaPrioritaria, setAlertaPrioritaria] =
+    useState<AlertaRiesgo | null>(null);
+
+  // Escuchar alertas priorizadas y activar despachador de voz (CU17 + CU18)
+  useEffect(() => {
+    alertasVozService.iniciar();
+
+    const desuscribir = alertasService.alGenerarAlerta((nuevaAlerta) => {
+      setAlertaPrioritaria(nuevaAlerta);
+    });
+
+    return () => {
+      desuscribir();
+      alertasVozService.detener();
+    };
+  }, []);
 
   // Anuncio de pantalla
   useEffect(() => {
@@ -90,17 +108,28 @@ export default function PantallaCamara() {
       setCapturaPendiente(null);
       setError(null);
 
-      if (respuesta.resumen_voz) {
-        anunciar(respuesta.resumen_voz, { forzar: true });
-      } else if (respuesta.estado === 'PROCESADA') {
-        anunciar('Captura procesada, pero no pude generar el resumen.', {
-          forzar: true,
-        });
-      } else {
-        anunciar(
-          'Captura guardada. No pude analizarla ahora, se procesará más tarde.',
-          { forzar: true },
-        );
+      // CU17: Procesar detecciones, clasificar riesgos y priorizar alertas
+      let alertasGeneradas: AlertaRiesgo[] = [];
+      if (respuesta.detecciones && respuesta.detecciones.length > 0) {
+        alertasGeneradas = alertasService.procesarDetecciones(respuesta.detecciones);
+      }
+
+      // CU18: Coordinación de voz — advertencias críticas/altas tienen prioridad
+      const hayRiesgoElevado = alertasGeneradas.some((a) => a.prioridad >= 4);
+
+      if (!hayRiesgoElevado) {
+        if (respuesta.resumen_voz) {
+          anunciar(respuesta.resumen_voz, { forzar: true });
+        } else if (respuesta.estado === 'PROCESADA') {
+          anunciar('Captura procesada, pero no pude generar el resumen.', {
+            forzar: true,
+          });
+        } else {
+          anunciar(
+            'Captura guardada. No pude analizarla ahora, se procesará más tarde.',
+            { forzar: true },
+          );
+        }
       }
     } catch (e) {
       const m = mensajeDeError(e);
@@ -303,6 +332,22 @@ export default function PantallaCamara() {
                   })}
                 </Text>
               </View>
+
+              {/* Alerta prioritaria detectada (CU17) */}
+              {alertaPrioritaria && (
+                <View
+                  style={[
+                    estilos.alertaBanner,
+                    alertaPrioritaria.nivel === 'CRITICO' && estilos.alertaCritica,
+                    alertaPrioritaria.nivel === 'ALTO' && estilos.alertaAlta,
+                  ]}
+                  accessibilityLiveRegion="assertive"
+                >
+                  <Text style={estilos.alertaTexto}>
+                    ⚠️ [{alertaPrioritaria.nivel}] {alertaPrioritaria.mensaje}
+                  </Text>
+                </View>
+              )}
 
               {/* Resumen hablado (repetible por toque) */}
               <Pressable
@@ -623,6 +668,27 @@ const estilos = StyleSheet.create({
   resultadoHora: {
     color: colores.textoSutil,
     fontSize: tamaños.fuenteXS,
+  },
+  alertaBanner: {
+    backgroundColor: 'rgba(234, 179, 8, 0.15)',
+    borderColor: '#eab308',
+    borderWidth: 1,
+    borderRadius: tamaños.radioSM,
+    padding: tamaños.xs,
+    marginBottom: tamaños.xs,
+  },
+  alertaCritica: {
+    backgroundColor: 'rgba(239, 68, 68, 0.25)',
+    borderColor: '#ef4444',
+  },
+  alertaAlta: {
+    backgroundColor: 'rgba(249, 115, 22, 0.2)',
+    borderColor: '#f97316',
+  },
+  alertaTexto: {
+    color: '#ffffff',
+    fontSize: tamaños.fuenteXS,
+    fontWeight: '700',
   },
   resumenCaja: {
     backgroundColor: colores.superficie,

@@ -26,6 +26,7 @@ export function useTTS() {
       velocidad: preferencias?.velocidad_voz ?? 1.0,
       volumen: preferencias?.volumen_voz ?? 80,
       idioma: usuario?.perfil?.idioma ?? 'es',
+      alertasSonoras: preferencias?.alertas_sonoras ?? true,
     });
   }, [preferencias, usuario?.perfil?.idioma]);
 
