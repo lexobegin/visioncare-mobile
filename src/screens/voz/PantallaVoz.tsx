@@ -33,6 +33,9 @@ import type {
 } from '@react-navigation/bottom-tabs';
 import { mensajeDeError } from '@/types';
 
+import { narracionService } from '@/services/narracion.service';
+import type { TipoAnalisis } from '@/types';
+
 /**
  * ══════════════════════════════════════════════════════
  * Comandos de voz (CU06) — flujo completo:
@@ -94,6 +97,7 @@ export default function PantallaVoz() {
   }, [anunciar]);
 
   // ═══════════════ EJECUTOR DE ACCIONES ═══════════════
+
 
   /** Abre un borrador SMS para el contacto activo autorizado de mayor prioridad. */
   const contactarContactoDeConfianza = useCallback(
@@ -164,8 +168,6 @@ export default function PantallaVoz() {
       switch (accion) {
         // ─── Flujos de cámara ───
         case 'RECONOCER_OBJETOS':
-        case 'CAPTURAR_ENTORNO':
-        case 'ABRIR_CAMARA':
         case 'LEER_TEXTO':
         case 'DESCRIBIR_ENTORNO':
         case 'DETECTAR_OBSTACULOS':
@@ -173,14 +175,33 @@ export default function PantallaVoz() {
         case 'RECONOCER_PRODUCTOS':
         case 'RECONOCER_COLORES':
         case 'RECONOCER_BILLETES':
-          navigation.navigate('Camara', {
-            accion: accion as AccionAnalisisVisual,
-          });
+
+          navigation.navigate(
+            'Camara',
+            tipoAnalisis
+              ? { tipoAnalisis: tipoAnalisis as TipoAnalisis }
+              : undefined,
+          );
           break;
 
+        case 'ABRIR_CAMARA':
+        case 'CAPTURAR_ENTORNO':
+          navigation.navigate('Camara', undefined);
+          break;
+
+        // ─── Seguridad / ayuda (CU20 — Sprint 2) ───
+r
         case 'ABRIR_SOLICITUD_AYUDA':
+          // Pre-selecciona EMERGENCIA: un "ayuda" hablado es urgente
+          navigation.navigate('Mas', { screen: 'Ayuda', params: { tipoInicial: 'EMERGENCIA' } });
+          break;
+
         case 'COMPARTIR_UBICACION':
+
+          setEstado('Compartir ubicación estará disponible en el Sprint 3.');
+
           await contactarContactoDeConfianza(accion);
+
           break;
 
         // ─── Solo informativas ───
@@ -190,12 +211,12 @@ export default function PantallaVoz() {
 
         case 'NINGUNA':
         default:
-          // Desconocida: solo la respuesta del backend (ya hablada)
           break;
       }
     },
     [contactarContactoDeConfianza, navigation],
   );
+  
 
   // ═══════════════ FLUJO COMPARTIDO ═══════════════
 
@@ -244,8 +265,13 @@ export default function PantallaVoz() {
             : `${respuesta.intencion} · confianza ${(respuesta.confianza * 100).toFixed(0)}%`,
         );
 
+
+        // Ejecutar la acción (puede navegar con parámetros S2)
+        ejecutarAccion(respuesta.accion_app, respuesta.tipo_analisis);
+
         // Ejecutar la acción (puede navegar)
         await ejecutarAccion(respuesta.accion_app);
+
       } catch (e) {
         const m = mensajeDeError(e);
         setError(m);

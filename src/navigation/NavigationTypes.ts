@@ -1,4 +1,5 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { TipoAnalisis } from '@/types';
 
 /**
  * ══════════════════════════════════════════════════════
@@ -27,7 +28,11 @@ export type LoginStackParamList = {
 export type AppTabsParamList = {
   Inicio: undefined;
   Voz: undefined;
-  Camara: { accion?: AccionAnalisisVisual } | undefined;
+  /** S2 — la voz llega con pre-configuración */
+  Camara:
+    | { tipoAnalisis?: TipoAnalisis; activarModoContinuo?: boolean }
+    | undefined;
+
   Mas: NavigatorScreenParams<MasStackParamList>;
 };
 
@@ -49,4 +54,8 @@ export type MasStackParamList = {
   Perfil: undefined;
   Accesibilidad: undefined;
   Contactos: undefined;
+  Alertas: undefined; // T20
+  /** T21 — tipo pre-seleccionado por comando de voz */
+  Ayuda: { tipoInicial?: 'AYUDA' | 'EMERGENCIA' } | undefined;
+  MisSolicitudes: undefined;
 };
