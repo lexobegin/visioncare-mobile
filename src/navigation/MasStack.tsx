@@ -7,6 +7,11 @@ import PantallaAccesibilidad from '@/screens/accesibilidad/PantallaAccesibilidad
 import PantallaContactos from '@/screens/contactos/PantallaContactos';
 import type { MasStackParamList } from './NavigationTypes';
 
+import PantallaAlertas from '@/screens/alertas/PantallaAlertas';
+
+import PantallaAyuda from '@/screens/ayuda/PantallaAyuda';
+import PantallaMisSolicitudes from '@/screens/ayuda/PantallaMisSolicitudes';
+
 /**
  * ══════════════════════════════════════════════════════
  * Stack interno de "Más": menú → Perfil (CU04),
@@ -45,9 +50,24 @@ export default function MasStack() {
         options={{ headerTitle: 'Accesibilidad' }}
       />
       <Stack.Screen
+        name="Alertas"
+        component={PantallaAlertas}
+        options={{ headerTitle: 'Alertas' }}
+      />
+      <Stack.Screen
         name="Contactos"
         component={PantallaContactos}
         options={{ headerTitle: 'Contactos de confianza' }}
+      />
+      <Stack.Screen
+        name="Ayuda"
+        component={PantallaAyuda}
+        options={{ headerTitle: 'Pedir ayuda' }}
+      />
+      <Stack.Screen
+        name="MisSolicitudes"
+        component={PantallaMisSolicitudes}
+        options={{ headerTitle: 'Mis solicitudes' }}
       />
     </Stack.Navigator>
   );

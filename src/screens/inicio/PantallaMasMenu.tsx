@@ -2,12 +2,28 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
+import type { MasStackParamList } from '@/navigation/NavigationTypes';
+
 import { useAuth } from '@/context/AuthContext';
 import { colores, tamaños } from '@/constants/tema';
 
+import { listarAlertasPendientes } from '@/api/alertas.api';
+import { useEffect, useState } from 'react';
+
 export default function PantallaMasMenu() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<MasStackParamList>>();
+
   const { usuario, cerrarSesion } = useAuth();
+
+  const [alertasPendientes, setAlertasPendientes] = useState(0);
+
+  useEffect(() => {
+    listarAlertasPendientes(1, 1)
+      .then((r) => setAlertasPendientes(r.meta.total))
+      .catch(() => setAlertasPendientes(0));
+  }, []);
 
   return (
     <View style={estilos.contenedor}>
@@ -17,16 +33,31 @@ export default function PantallaMasMenu() {
       <Text style={estilos.sutil}>{usuario?.rol}</Text>
 
       <ItemMenu
+        etiqueta="🆘  Pedir ayuda (CU20)"
+        peligrosa
+        onPress={() => navigation.navigate('Ayuda')}
+      />
+
+      <ItemMenu
         etiqueta="👤  Mi perfil (CU04)"
-        onPress={() => navigation.navigate('Perfil' as never)}
+        onPress={() => navigation.navigate('Perfil')}
       />
       <ItemMenu
         etiqueta="🔊  Accesibilidad (CU03)"
-        onPress={() => navigation.navigate('Accesibilidad' as never)}
+        onPress={() => navigation.navigate('Accesibilidad')}
       />
       <ItemMenu
         etiqueta="📞  Contactos de confianza (CU05)"
-        onPress={() => navigation.navigate('Contactos' as never)}
+        onPress={() => navigation.navigate('Contactos')}
+      />
+      <ItemMenu
+        etiqueta={
+          alertasPendientes > 0
+            ? `🚨  Alertas (${alertasPendientes} sin atender)`
+            : '🔔  Alertas'
+        }
+        peligrosa={alertasPendientes > 0}
+        onPress={() => navigation.navigate('Alertas')}
       />
       <ItemMenu
         etiqueta="🚪  Cerrar sesión"

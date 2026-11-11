@@ -6,30 +6,52 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { RouteProp } from '@react-navigation/native';
 
 import { registrarCaptura } from '@/api/capturas.api';
+import { PanelResultadoAnalisis } from '@/components/PanelResultadoAnalisis';
 import { colores, tamaños } from '@/constants/tema';
+import { useModoContinuo } from '@/hooks/useModoContinuo';
 import { useTTS } from '@/hooks/useTTS';
+import type {
+  AppTabsParamList,
+} from '@/navigation/NavigationTypes';
 import { obtenerUbicacion } from '@/services/location.service';
-import { mensajeDeError, type CapturaResponse } from '@/types';
+import {
+  INFO_TIPO_ANALISIS,
+  TIPOS_ANALISIS,
+  type CapturaResponse,
+  //type FotogramaCapturado,
+  type TipoAnalisis,
+} from '@/types';
+import type { FotogramaCapturado as FotogramaTipo } from '@/services/narracion.service';
+import { mensajeDeError } from '@/types';
 
 /**
  * ══════════════════════════════════════════════════════
- * Cámara + Reconocimiento IA (CU07 + CU08).
+ * Cámara — SPRINT 2 (el gran ensamblaje):
  *
- * Flujo de cada captura:
- *   1. takePictureAsync (quality 0.7 — buen balance)
- *   2. GPS en paralelo (never-throw → null si no hay fix)
- *   3. POST /capturas (multipart) → backend → R2 → FastAPI
- *   4. resumen_voz del backend → TTS SIEMPRE
- *   5. Panel con detecciones + historial de la sesión
+ *   ┌──────────────────────────────────┐
+ *   │ 🔄 Banner MODO CONTINUO + chip   │  ← HU17/18/19 vía narracion
+ *   ├──────────────────────────────────┤
+ *   │ [chips: Objetos|Leer|Señales|…]  │  ← análisis puntual (7)
+ *   │                                  │
+ *   │      VISTA PREVIA CÁMARA         │
+ *   │                                  │
+ *   │         ( ⭕ captura )            │  ← usa el tipo elegido
+ *   ├──────────────────────────────────┤
+ *   │ Panel de resultados por tipo     │  ← PanelResultadoAnalisis
+ *   └──────────────────────────────────┘
  *
- * Estados de cámara:
- *   - permiso pendiente/denegado → panel explicativo + ajustes
- *   - cámara lista → vista previa + botón de captura
+ * Pre-configuración por VOZ (params de navegación):
+ *   { activarModoContinuo: true }   → activa el asistente al llegar
+ *   { tipoAnalisis: 'OCR' }         → pre-selecciona el análisis
  * ══════════════════════════════════════════════════════
  */
 
@@ -37,73 +59,107 @@ const MAX_HISTORIAL = 5;
 
 export default function PantallaCamara() {
   const { anunciar } = useTTS();
+  const navigation = useNavigation<BottomTabNavigationProp<AppTabsParamList>>();
+  const route = useRoute<RouteProp<AppTabsParamList, 'Camara'>>();
 
-  // ─── Cámara (API moderna de expo-camera) ───
+  // ─── Cámara ───
   const camaraRef = useRef<CameraView>(null);
   const [permiso, pedirPermiso] = useCameraPermissions();
   const [camaraLista, setCamaraLista] = useState(false);
 
-  // ─── Flujo de captura ───
-  const [procesando, setProcesando] = useState(false);
-  const [ultimoResultado, setUltimoResultado] =
-    useState<CapturaResponse | null>(null);
+  // ─── Modo Continuo (servicio T17) ───
+  const modoContinuo = useModoContinuo(capturarFotograma);
+
+  // ─── Análisis puntual ───
+  const [tipoSeleccionado, setTipoSeleccionado] = useState<TipoAnalisis>('OBJETOS');
+  const [procesandoCaptura, setProcesandoCaptura] = useState(false);
+  const [ultimoResultado, setUltimoResultado] = useState<CapturaResponse | null>(null);
   const [historial, setHistorial] = useState<CapturaResponse[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Anuncio de pantalla
+  // ─── Captura de fotograma para el Modo Continuo (inyectada) ───
+  async function capturarFotograma(): Promise<FotogramaTipo | null> {
+    try {
+      const foto = await camaraRef.current?.takePictureAsync({
+        quality: 0.6, // fotogramas efímeros: menos bytes
+        skipProcessing: false,
+      });
+      if (!foto?.uri) return null;
+      const fotograma: FotogramaTipo = {
+        uri: foto.uri,
+        ancho: foto.width,
+        alto: foto.height,
+      };
+      return fotograma;
+    } catch {
+      return null; // cámara ocupada: el servicio reintenta
+    }
+  }
+
+  // ─── Pre-configuración por VOZ (params de navegación) ───
+  useEffect(() => {
+    const params = route.params;
+    if (!params) return;
+
+    if (params.activarModoContinuo && !modoContinuo.activo) {
+      modoContinuo.activar();
+    }
+    if (params.tipoAnalisis) {
+      setTipoSeleccionado(params.tipoAnalisis);
+    }
+
+    // Consumir los params (evita re-activar al re-render)
+    navigation.setParams({ activarModoContinuo: undefined, tipoAnalisis: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.params]);
+
+  // ─── Anuncio de pantalla (una vez) ───
   useEffect(() => {
     anunciar(
-      'Pantalla de cámara. Apunta al entorno y pulsa el botón grande para capturar y analizar.',
+      'Pantalla de cámara. Activa el asistente continuo para que te ' +
+        'acompañe, o elige un análisis y pulsa el botón para capturar.',
     );
   }, [anunciar]);
 
-  // ═══════════════ CAPTURA ═══════════════
+  // ═══════════════ CAPTURA PUNTUAL ═══════════════
 
-  const capturar = useCallback(async () => {
-    if (procesando || !camaraLista) return;
+  const capturarPuntual = useCallback(async () => {
+    if (procesandoCaptura || !camaraLista || modoContinuo.activo) return;
 
-    setProcesando(true);
+    setProcesandoCaptura(true);
     setError(null);
     anunciar('Capturando', { forzar: true });
 
     try {
-      // ─── 1. Tomar la foto ───
       const foto = await camaraRef.current?.takePictureAsync({
         quality: 0.7,
-        skipProcessing: false, // Android: corrige rotación EXIF
+        skipProcessing: false,
       });
-
       if (!foto?.uri) {
         throw new Error('No se pudo capturar la imagen. Intenta de nuevo.');
       }
 
-      // ─── 2. GPS (silencioso — null si no hay fix) ───
       const ubicacion = await obtenerUbicacion();
 
-      // ─── 3. Enviar al backend (→ R2 → FastAPI → YOLO) ───
       const respuesta = await registrarCaptura({
         uri: foto.uri,
+        tipoAnalisis: tipoSeleccionado,
         reconocer: true,
         origen: 'CAMARA',
         ...(ubicacion && {
           latitud: ubicacion.latitud,
           longitud: ubicacion.longitud,
+          precisionGps: ubicacion.precision ?? undefined,
         }),
       });
 
-      // ─── 4. Resultados ───
       setUltimoResultado(respuesta);
-      setHistorial((prev) =>
-        [respuesta, ...prev].slice(0, MAX_HISTORIAL),
-      );
+      setHistorial((prev) => [respuesta, ...prev].slice(0, MAX_HISTORIAL));
 
-      // ─── 5. Anuncio por voz (siempre hay algo que decir) ───
       if (respuesta.resumen_voz) {
         anunciar(respuesta.resumen_voz, { forzar: true });
       } else if (respuesta.estado === 'PROCESADA') {
-        anunciar('Captura procesada, pero no pude generar el resumen.', {
-          forzar: true,
-        });
+        anunciar('Captura procesada.', { forzar: true });
       } else {
         anunciar(
           'Captura guardada. No pude analizarla ahora, se procesará más tarde.',
@@ -115,18 +171,44 @@ export default function PantallaCamara() {
       setError(m);
       anunciar(`Error. ${m}`, { forzar: true });
     } finally {
-      setProcesando(false);
+      setProcesandoCaptura(false);
     }
-  }, [procesando, camaraLista, anunciar]);
+  }, [procesandoCaptura, camaraLista, modoContinuo.activo, tipoSeleccionado, anunciar]);
 
-  // ═══════════════ PERMISOS ═══════════════
+  // ═══════════════ ALTERNAR MODO CONTINUO ═══════════════
 
-  // Hook aún verificando el permiso almacenado
+    const alternarModo = useCallback(() => {
+    if (modoContinuo.activo) {
+      const eraLectura = modoContinuo.estado.modo === 'lectura';
+      modoContinuo.desactivar();
+      anunciar(
+        eraLectura
+          ? 'Lectura continua desactivada.'
+          : 'Modo asistente desactivado.',
+        { forzar: true },
+      );
+    } else if (tipoSeleccionado === 'OCR') {
+      modoContinuo.activar({ modoLectura: true });
+      anunciar(
+        'Lectura continua activada. Mueve el teléfono hacia el texto ' +
+          'que quieras leer; te lo leeré en voz alta.',
+        { forzar: true },
+      );
+    } else {
+      modoContinuo.activar();
+      anunciar(
+        'Modo asistente activado. Te iré informando de lo que hay al frente.',
+        { forzar: true },
+      );
+    }
+  }, [modoContinuo, tipoSeleccionado, anunciar]);
+
+  // ═══════════════ PERMISOS (S1) ═══════════════
+
   if (!permiso) {
     return <PantallaEspera mensaje="Preparando la cámara…" />;
   }
 
-  // Permiso denegado permanentemente → solo ajustes del sistema
   if (!permiso.granted && !permiso.canAskAgain) {
     return (
       <PanelPermiso
@@ -138,7 +220,6 @@ export default function PantallaCamara() {
     );
   }
 
-  // Permiso denegado (se puede volver a preguntar)
   if (!permiso.granted) {
     return (
       <PanelPermiso
@@ -150,11 +231,12 @@ export default function PantallaCamara() {
     );
   }
 
-  // ═══════════════ CÁMARA ACTIVA ═══════════════
+  // ═══════════════ RENDER PRINCIPAL ═══════════════
+
+  const info = INFO_TIPO_ANALISIS[tipoSeleccionado];
 
   return (
     <View style={estilos.flex}>
-      {/* ─── Vista previa de la cámara ─── */}
       <CameraView
         ref={camaraRef}
         style={StyleSheet.absoluteFill}
@@ -165,10 +247,49 @@ export default function PantallaCamara() {
         }
       />
 
-      {/* ─── Overlay superior: error ─── */}
+      {/* ─── Banner MODO CONTINUO ─── */}
+      <View
+        style={[
+          estilos.bannerModo,
+          modoContinuo.activo && estilos.bannerModoActivo,
+        ]}
+      >
+        <View style={estilos.bannerTextos}>
+          <Text style={estilos.bannerTitulo}>
+            {modoContinuo.estado.modo === 'lectura'
+              ? '📖 Lectura continua'
+              : '🔄 Asistente continuo'}
+            {modoContinuo.activo ? ' · ACTIVO' : ''}
+          </Text>
+          {modoContinuo.activo ? (
+            <ChipEstadoModo
+              procesando={modoContinuo.procesando}
+              estado={modoContinuo.estado}
+            />
+          ) : (
+            <Text style={estilos.bannerSub}>
+              {tipoSeleccionado === 'OCR'
+                ? 'Lee en voz alta el texto nuevo que entre al encuadre'
+                : 'Narración automática del entorno (manos libres)'}
+            </Text>
+          )}
+        </View>
+
+        <Switch
+          value={modoContinuo.activo}
+          onValueChange={alternarModo}
+          trackColor={{ false: colores.superficieClara, true: colores.exito }}
+          thumbColor="#ffffff"
+          accessibilityLabel="Asistente continuo: narración automática del entorno"
+        />
+      </View>
+
+      {/* ─── Error overlay ─── */}
       {error && (
         <View style={estilos.zonaError} accessibilityLiveRegion="polite">
-          <Text style={estilos.errorTexto}>⚠️ {error}</Text>
+          <Text style={estilos.errorTexto} numberOfLines={2}>
+            ⚠️ {error}
+          </Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Cerrar error"
@@ -180,32 +301,77 @@ export default function PantallaCamara() {
         </View>
       )}
 
-      {/* ─── Overlay de análisis ─── */}
-      {procesando && (
+      {/* ─── Overlay de análisis puntual ─── */}
+      {procesandoCaptura && (
         <View style={estilos.overlayProcesando} accessibilityLiveRegion="polite">
           <ActivityIndicator size="large" color="#ffffff" />
           <Text style={estilos.procesandoTexto}>
-            Analizando tu entorno…
+            {info.icono} Analizando: {info.etiqueta}…
           </Text>
         </View>
       )}
 
-      {/* ─── Botón de captura gigante ─── */}
+      {/* ─── Selector de análisis puntual ─── */}
+      {!modoContinuo.activo && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={estilos.selectorZona}
+          contentContainerStyle={estilos.selectorContenido}
+        >
+          {TIPOS_ANALISIS.map((tipo) => {
+            const t = INFO_TIPO_ANALISIS[tipo];
+            const activo = tipo === tipoSeleccionado;
+            return (
+              <Pressable
+                key={tipo}
+                accessibilityRole="button"
+                accessibilityLabel={`Análisis de ${t.etiqueta}: ${t.descripcion}`}
+                accessibilityState={{ selected: activo }}
+                onPress={() => setTipoSeleccionado(tipo)}
+                style={({ pressed }) => [
+                  estilos.chipTipo,
+                  activo && estilos.chipTipoActivo,
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <Text style={estilos.chipIcono} aria-hidden>
+                  {t.icono}
+                </Text>
+                <Text
+                  style={[
+                    estilos.chipTexto,
+                    activo && estilos.chipTextoActivo,
+                  ]}
+                >
+                  {t.etiqueta}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      {/* ─── Botón de captura ─── */}
       <View style={estilos.zonaBoton} pointerEvents="box-none">
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            camaraLista
-              ? 'Capturar y analizar entorno'
-              : 'Preparando cámara, espera un momento'
+            modoContinuo.activo
+              ? 'Captura manual deshabilitada: el asistente continuo está activo'
+              : `Capturar y analizar ${info.etiqueta}`
           }
-          accessibilityState={{ busy: procesando, disabled: !camaraLista }}
-          onPress={() => void capturar()}
-          disabled={procesando || !camaraLista}
+          accessibilityState={{ busy: procesandoCaptura, disabled: !camaraLista || modoContinuo.activo }}
+          onPress={() => void capturarPuntual()}
+          disabled={procesandoCaptura || !camaraLista || modoContinuo.activo}
           style={({ pressed }) => [
             estilos.botonCaptura,
-            (!camaraLista || procesando) && { opacity: 0.5 },
-            pressed && !procesando && camaraLista && { transform: [{ scale: 0.93 }] },
+            (!camaraLista || procesandoCaptura || modoContinuo.activo) && {
+              opacity: 0.4,
+            },
+            pressed && camaraLista && !modoContinuo.activo && {
+              transform: [{ scale: 0.93 }],
+            },
           ]}
         >
           <View style={estilos.botonInterno}>
@@ -215,8 +381,17 @@ export default function PantallaCamara() {
           </View>
         </Pressable>
 
-        {!camaraLista && !procesando && (
-          <Text style={estilos.preparando}>Preparando cámara…</Text>
+        {modoContinuo.activo ? (
+          <Text style={estilos.hintBoton}>
+            {modoContinuo.estado.modo === 'lectura'
+              ? '📖 Leyendo texto continuamente'
+              : 'La cámara la maneja tu asistente'}
+          </Text>
+        ) : (
+          !camaraLista &&
+          !procesandoCaptura && (
+            <Text style={estilos.hintBoton}>Preparando cámara…</Text>
+          )
         )}
       </View>
 
@@ -226,108 +401,43 @@ export default function PantallaCamara() {
           contentContainerStyle={estilos.panelContenido}
           nestedScrollEnabled
         >
-          {/* Último resultado */}
-          {ultimoResultado ? (
-            <View style={estilos.resultado}>
-              <View style={estilos.resultadoCabecera}>
-                <Text style={estilos.resultadoTitulo}>
-                  📷 Último análisis
-                </Text>
-                <Text style={estilos.resultadoHora}>
-                  {new Date(
-                    ultimoResultado.fecha_captura,
-                  ).toLocaleTimeString('es', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </Text>
-              </View>
+          <PanelResultadoAnalisis
+            resultado={ultimoResultado}
+            onRepetirVoz={(texto) => anunciar(texto, { forzar: true })}
+          />
 
-              {/* Resumen hablado (repetible por toque) */}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Repetir resumen por voz"
-                onPress={() =>
-                  anunciar(
-                    ultimoResultado.resumen_voz ??
-                      'Sin resumen disponible para esta captura.',
-                    { forzar: true },
-                  )
-                }
-                style={estilos.resumenCaja}
-              >
-                <Text style={estilos.resumenTexto}>
-                  🗣️  {ultimoResultado.resumen_voz ?? 'Sin resumen disponible.'}
-                </Text>
-                <Text style={estilos.resumenRepetir}>
-                  (toca para escuchar de nuevo)
-                </Text>
-              </Pressable>
-
-              {/* Estado IA */}
-              {!ultimoResultado.ia_disponible && (
-                <Text style={estilos.avisoIA}>
-                  ⚠️ Servicio de IA no disponible — captura guardada
-                  como pendiente.
-                </Text>
-              )}
-
-              {/* Detecciones */}
-              {ultimoResultado.detecciones &&
-                ultimoResultado.detecciones.length > 0 && (
-                  <View style={estilos.detecciones}>
-                    {ultimoResultado.detecciones
-                      .slice(0, 6)
-                      .map((d) => (
-                        <View
-                          key={d.id_deteccion}
-                          style={estilos.deteccionFila}
-                        >
-                          <Text style={estilos.deteccionEtiqueta}>
-                            {d.etiqueta_es ?? d.etiqueta}
-                          </Text>
-                          <View style={estilos.confianzaBarra}>
-                            <View
-                              style={[
-                                estilos.confianzaRelleno,
-                                { width: `${Math.round(d.confianza * 100)}%` },
-                              ]}
-                            />
-                          </View>
-                          <Text style={estilos.deteccionConfianza}>
-                            {Math.round(d.confianza * 100)}%
-                          </Text>
-                        </View>
-                      ))}
-                  </View>
-                )}
-            </View>
-          ) : (
-            <Text style={estilos.panelVacio}>
-              Pulsa el botón para capturar y analizar tu entorno con IA.
-            </Text>
-          )}
-
-          {/* Historial de la sesión */}
+          {/* Historial de la sesión — tocable para re-escuchar */}
           {historial.length > 1 && (
             <View style={estilos.historial}>
               <Text style={estilos.historialTitulo}>
-                Capturas de esta sesión:
+                Capturas de esta sesión (toca para re-escuchar):
               </Text>
-              {historial.slice(1).map((h) => (
-                <Text
-                  key={h.id_captura}
-                  style={estilos.historialItem}
-                  numberOfLines={1}
-                >
-                  • {new Date(h.fecha_captura).toLocaleTimeString('es', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                  {' — '}
-                  {h.resumen_voz ?? h.estado}
-                </Text>
-              ))}
+              {historial.slice(1).map((h) => {
+                const icono =
+                  INFO_TIPO_ANALISIS[h.tipo_analisis as TipoAnalisis]?.icono ??
+                  '📷';
+                const texto = h.resumen_voz ?? h.estado;
+                return h.resumen_voz ? (
+                  <Pressable
+                    key={h.id_captura}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Repetir: ${texto}`}
+                    onPress={() => anunciar(h.resumen_voz!, { forzar: true })}
+                    style={({ pressed }) => [
+                      estilos.historialItemTocable,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Text style={estilos.historialItem} numberOfLines={2}>
+                      🔊 {icono} {texto}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Text key={h.id_captura} style={estilos.historialItem} numberOfLines={1}>
+                    • {icono} {texto}
+                  </Text>
+                );
+              })}
             </View>
           )}
         </ScrollView>
@@ -338,7 +448,41 @@ export default function PantallaCamara() {
 
 /* ═══════════════════ SUB-COMPONENTES ═══════════════════ */
 
-/** Espera inicial (cargando estado del permiso) */
+/** Chip de estado del Modo Continuo (SILENCIO/INFO/ALERTA/procesando) */
+function ChipEstadoModo(props: {
+  procesando: boolean;
+  estado: {
+    ultimoMensaje: string | null;
+    ultimoNivel: string | null;
+    error: string | null;
+  };
+}) {
+  const { procesando, estado } = props;
+
+  let texto = 'Escuchando tu entorno…';
+  let estiloExtra = {};
+
+  if (estado.error) {
+    texto = estado.error;
+    estiloExtra = { color: colores.advertencia };
+  } else if (procesando) {
+    texto = 'Analizando…';
+  } else if (estado.ultimoNivel === 'ALERTA' && estado.ultimoMensaje) {
+    texto = `🚨 ${estado.ultimoMensaje}`;
+    estiloExtra = { color: '#fecaca', fontWeight: '700' };
+  } else if (estado.ultimoNivel === 'INFO' && estado.ultimoMensaje) {
+    texto = estado.ultimoMensaje;
+  }
+
+  return (
+    <View accessibilityLiveRegion="polite">
+      <Text style={[estilos.bannerSub, estiloExtra]} numberOfLines={2}>
+        {texto}
+      </Text>
+    </View>
+  );
+}
+
 function PantallaEspera({ mensaje }: { mensaje: string }) {
   return (
     <View style={estilos.centro}>
@@ -348,7 +492,6 @@ function PantallaEspera({ mensaje }: { mensaje: string }) {
   );
 }
 
-/** Panel explicativo de permisos */
 function PanelPermiso(props: {
   titulo: string;
   mensaje: string;
@@ -369,7 +512,6 @@ function PanelPermiso(props: {
       </Text>
       <Text style={estilos.permisoTitulo}>{props.titulo}</Text>
       <Text style={estilos.permisoMensaje}>{props.mensaje}</Text>
-
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={props.etiquetaBoton}
@@ -390,6 +532,169 @@ function PanelPermiso(props: {
 const estilos = StyleSheet.create({
   flex: { flex: 1, backgroundColor: '#000000' },
 
+  bannerModo: {
+    position: 'absolute',
+    top: tamaños.md,
+    left: tamaños.md,
+    right: tamaños.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    borderRadius: tamaños.radioLG,
+    padding: tamaños.md,
+    gap: tamaños.sm,
+    borderWidth: 1,
+    borderColor: colores.borde,
+  },
+  bannerModoActivo: { borderColor: colores.exito },
+  bannerTextos: { flex: 1 },
+  bannerTitulo: {
+    color: '#ffffff',
+    fontSize: tamaños.fuenteMD,
+    fontWeight: '700',
+  },
+  bannerSub: {
+    color: '#cbd5e1',
+    fontSize: tamaños.fuenteXS,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+
+  zonaError: {
+    position: 'absolute',
+    top: 108,
+    left: tamaños.md,
+    right: tamaños.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colores.peligroFondo,
+    borderColor: colores.peligro,
+    borderWidth: 1,
+    borderRadius: tamaños.radioMD,
+    padding: tamaños.sm,
+    gap: tamaños.sm,
+  },
+  errorTexto: { flex: 1, color: '#fecaca', fontSize: tamaños.fuenteXS },
+  errorCerrar: { color: '#fecaca', fontSize: 16, fontWeight: '700' },
+
+  overlayProcesando: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: tamaños.md,
+    zIndex: 20,
+  },
+  procesandoTexto: {
+    color: '#ffffff',
+    fontSize: tamaños.fuenteLG,
+    fontWeight: '700',
+  },
+
+  selectorZona: {
+    position: 'absolute',
+    top: 108,
+    left: 0,
+    right: 0,
+    flexGrow: 0,
+  },
+  selectorContenido: {
+    paddingHorizontal: tamaños.md,
+    gap: tamaños.sm,
+  },
+  chipTipo: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    borderRadius: tamaños.radioMD,
+    borderWidth: 1,
+    borderColor: colores.borde,
+    paddingVertical: tamaños.xs,
+    paddingHorizontal: tamaños.sm,
+    minWidth: 84,
+  },
+  chipTipoActivo: {
+    backgroundColor: colores.primario,
+    borderColor: colores.primario,
+  },
+  chipIcono: { fontSize: 22 },
+  chipTexto: {
+    color: colores.textoSecundario,
+    fontSize: tamaños.fuenteXS,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  chipTextoActivo: { color: '#ffffff' },
+
+  zonaBoton: {
+    position: 'absolute',
+    bottom: 268,
+    alignSelf: 'center',
+    alignItems: 'center',
+  },
+  botonCaptura: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    borderWidth: 5,
+    borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+  },
+  botonInterno: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  botonIcono: { fontSize: 28 },
+  hintBoton: {
+    color: '#ffffff',
+    fontSize: tamaños.fuenteXS,
+    marginTop: tamaños.sm,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    paddingHorizontal: tamaños.sm,
+    paddingVertical: 4,
+    borderRadius: tamaños.radioSM,
+    overflow: 'hidden',
+  },
+
+  panel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    maxHeight: 240,
+    backgroundColor: colores.fondo,
+    borderTopWidth: 1,
+    borderTopColor: colores.borde,
+  },
+  panelContenido: { padding: tamaños.md, paddingBottom: tamaños.lg },
+
+  historial: {
+    marginTop: tamaños.sm,
+    borderTopWidth: 1,
+    borderTopColor: colores.borde,
+    paddingTop: tamaños.sm,
+  },
+  historialTitulo: {
+    color: colores.textoSutil,
+    fontSize: tamaños.fuenteXS,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  historialItem: {
+    color: colores.textoSecundario,
+    fontSize: tamaños.fuenteXS,
+    lineHeight: 18,
+  },
+
   centro: {
     flex: 1,
     backgroundColor: colores.fondo,
@@ -403,7 +708,6 @@ const estilos = StyleSheet.create({
     fontSize: tamaños.fuenteMD,
     textAlign: 'center',
   },
-
   permisoIcono: { fontSize: 64 },
   permisoTitulo: {
     color: colores.texto,
@@ -431,191 +735,8 @@ const estilos = StyleSheet.create({
     fontSize: tamaños.fuenteLG,
     fontWeight: '700',
   },
-
-  zonaError: {
-    position: 'absolute',
-    top: tamaños.md,
-    left: tamaños.md,
-    right: tamaños.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colores.peligroFondo,
-    borderColor: colores.peligro,
-    borderWidth: 1,
-    borderRadius: tamaños.radioMD,
-    padding: tamaños.md,
-    gap: tamaños.sm,
-  },
-  errorTexto: {
-    flex: 1,
-    color: '#fecaca',
-    fontSize: tamaños.fuenteSM,
-  },
-  errorCerrar: { color: '#fecaca', fontSize: 18, fontWeight: '700' },
-
-  overlayProcesando: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(15, 23, 42, 0.72)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: tamaños.md,
-    zIndex: 10,
-  },
-  procesandoTexto: {
-    color: '#ffffff',
-    fontSize: tamaños.fuenteLG,
-    fontWeight: '700',
-  },
-
-  zonaBoton: {
-    position: 'absolute',
-    bottom: 258, // encima del panel (panel ≈ 230 + margen)
-    alignSelf: 'center',
-    alignItems: 'center',
-  },
-  botonCaptura: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 5,
-    borderColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.35)',
-  },
-  botonInterno: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  botonIcono: { fontSize: 30 },
-  preparando: {
-    color: '#ffffff',
-    fontSize: tamaños.fuenteSM,
-    marginTop: tamaños.sm,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    paddingHorizontal: tamaños.sm,
-    paddingVertical: 4,
-    borderRadius: tamaños.radioSM,
-    overflow: 'hidden',
-  },
-
-  panel: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    maxHeight: 230,
-    backgroundColor: colores.fondo,
-    borderTopWidth: 1,
-    borderTopColor: colores.borde,
-  },
-  panelContenido: {
-    padding: tamaños.md,
-    paddingBottom: tamaños.lg,
-  },
-  panelVacio: {
-    color: colores.textoSutil,
-    fontSize: tamaños.fuenteSM,
-    textAlign: 'center',
-    paddingVertical: tamaños.md,
-  },
-  resultado: {
-    backgroundColor: colores.superficie,
-    borderRadius: tamaños.radioMD,
-    padding: tamaños.sm,
-  },
-  resultadoCabecera: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: tamaños.xs,
-  },
-  resultadoTitulo: {
-    color: colores.texto,
-    fontSize: tamaños.fuenteSM,
-    fontWeight: '700',
-  },
-  resultadoHora: {
-    color: colores.textoSutil,
-    fontSize: tamaños.fuenteXS,
-  },
-  resumenCaja: {
-    backgroundColor: colores.superficie,
-    borderRadius: tamaños.radioMD,
-    padding: tamaños.sm,
+  historialItemTocable: {
     minHeight: tamaños.touchMin,
     justifyContent: 'center',
-  },
-  resumenTexto: {
-    color: colores.texto,
-    fontSize: tamaños.fuenteSM,
-    lineHeight: 20,
-  },
-  resumenRepetir: {
-    color: colores.textoSutil,
-    fontSize: tamaños.fuenteXS,
-    marginTop: 2,
-  },
-  avisoIA: {
-    color: colores.advertencia,
-    fontSize: tamaños.fuenteXS,
-    marginTop: tamaños.sm,
-  },
-
-  detecciones: { marginTop: tamaños.sm, gap: 6 },
-  deteccionFila: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: tamaños.sm,
-  },
-  deteccionEtiqueta: {
-    color: colores.texto,
-    fontSize: tamaños.fuenteSM,
-    width: 110,
-  },
-  confianzaBarra: {
-    flex: 1,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colores.superficieClara,
-    overflow: 'hidden',
-  },
-  confianzaRelleno: {
-    height: '100%',
-    borderRadius: 4,
-    backgroundColor: colores.primario,
-  },
-  deteccionConfianza: {
-    color: colores.textoSecundario,
-    fontSize: tamaños.fuenteXS,
-    fontWeight: '700',
-    width: 38,
-    textAlign: 'right',
-  },
-
-  historial: {
-    marginTop: tamaños.md,
-    borderTopWidth: 1,
-    borderTopColor: colores.borde,
-    paddingTop: tamaños.sm,
-  },
-  historialTitulo: {
-    color: colores.textoSutil,
-    fontSize: tamaños.fuenteXS,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  historialItem: {
-    color: colores.textoSecundario,
-    fontSize: tamaños.fuenteXS,
-    lineHeight: 18,
   },
 });

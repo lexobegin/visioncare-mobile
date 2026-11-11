@@ -27,6 +27,9 @@ import type {
 } from '@react-navigation/bottom-tabs';
 import { mensajeDeError } from '@/types';
 
+import { narracionService } from '@/services/narracion.service';
+import type { TipoAnalisis } from '@/types';
+
 /**
  * ══════════════════════════════════════════════════════
  * Comandos de voz (CU06) — flujo completo:
@@ -88,14 +91,23 @@ export default function PantallaVoz() {
 
   // ═══════════════ EJECUTOR DE ACCIONES ═══════════════
 
-  /** Ejecuta la accion_app devuelta por el backend */
+    /** Ejecuta la accion_app devuelta por el backend (S2: con params) */
   const ejecutarAccion = useCallback(
-    (accion: string) => {
+    (accion: string, tipoAnalisis: string | null) => {
       switch (accion) {
-        // ─── Flujos de cámara (Tanda 10 los completa) ───
+        // ─── Modo Continuo ───
+        case 'ACTIVAR_MODO_CONTINUO':
+          // La cámara es quien activa (necesita su CameraView)
+          navigation.navigate('Camara', { activarModoContinuo: true });
+          break;
+
+        case 'DETENER_MODO_CONTINUO':
+          // El servicio es singleton: se detiene sin navegar
+          narracionService.desactivar();
+          break;
+
+        // ─── Análisis puntuales (con pre-selección S2) ───
         case 'RECONOCER_OBJETOS':
-        case 'CAPTURAR_ENTORNO':
-        case 'ABRIR_CAMARA':
         case 'LEER_TEXTO':
         case 'DESCRIBIR_ENTORNO':
         case 'DETECTAR_OBSTACULOS':
@@ -103,13 +115,27 @@ export default function PantallaVoz() {
         case 'RECONOCER_PRODUCTOS':
         case 'RECONOCER_COLORES':
         case 'RECONOCER_BILLETES':
-          navigation.navigate('Camara');
+          navigation.navigate(
+            'Camara',
+            tipoAnalisis
+              ? { tipoAnalisis: tipoAnalisis as TipoAnalisis }
+              : undefined,
+          );
           break;
 
-        // ─── Seguridad / ayuda (Sprint 3) ───
+        case 'ABRIR_CAMARA':
+        case 'CAPTURAR_ENTORNO':
+          navigation.navigate('Camara', undefined);
+          break;
+
+        // ─── Seguridad / ayuda (CU20 — Sprint 2) ───
         case 'ABRIR_SOLICITUD_AYUDA':
+          // Pre-selecciona EMERGENCIA: un "ayuda" hablado es urgente
+          navigation.navigate('Mas', { screen: 'Ayuda', params: { tipoInicial: 'EMERGENCIA' } });
+          break;
+
         case 'COMPARTIR_UBICACION':
-          setEstado('La solicitud de ayuda estará disponible en el Sprint 3.');
+          setEstado('Compartir ubicación estará disponible en el Sprint 3.');
           break;
 
         // ─── Solo informativas ───
@@ -119,12 +145,12 @@ export default function PantallaVoz() {
 
         case 'NINGUNA':
         default:
-          // Desconocida: solo la respuesta del backend (ya hablada)
           break;
       }
     },
     [navigation],
   );
+  
 
   // ═══════════════ FLUJO COMPARTIDO ═══════════════
 
@@ -165,8 +191,8 @@ export default function PantallaVoz() {
             : `${respuesta.intencion} · confianza ${(respuesta.confianza * 100).toFixed(0)}%`,
         );
 
-        // Ejecutar la acción (puede navegar)
-        ejecutarAccion(respuesta.accion_app);
+        // Ejecutar la acción (puede navegar con parámetros S2)
+        ejecutarAccion(respuesta.accion_app, respuesta.tipo_analisis);
       } catch (e) {
         const m = mensajeDeError(e);
         setError(m);
