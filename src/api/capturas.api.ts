@@ -19,6 +19,7 @@ import type {
   RespuestaPaginada,
   TipoAnalisis,
 } from '@/types';
+
 import { api } from './client';
 
 /** Formato especial de archivo para multipart en React Native */
@@ -43,6 +44,7 @@ export async function registrarCaptura(params: {
   mimeType?: string;
   tipoAnalisis?: TipoAnalisis;
   reconocer?: boolean;
+  accion_app?: string;
   latitud?: number;
   longitud?: number;
   precisionGps?: number;
@@ -53,6 +55,7 @@ export async function registrarCaptura(params: {
     mimeType = 'image/jpeg',
     tipoAnalisis = 'OBJETOS',
     reconocer = true,
+    accion_app,
     latitud,
     longitud,
     precisionGps,
@@ -60,13 +63,16 @@ export async function registrarCaptura(params: {
   } = params;
 
   const formData = new FormData();
+
   formData.append(
     'imagen',
     archivoDesdeUri(uri, mimeType, `captura-${Date.now()}.jpg`),
   );
   formData.append('tipo_analisis', tipoAnalisis);
+
   formData.append('reconocer', String(reconocer));
   formData.append('origen', origen);
+  if (accion_app) formData.append('accion_app', accion_app);
   if (latitud !== undefined) formData.append('latitud', String(latitud));
   if (longitud !== undefined) formData.append('longitud', String(longitud));
   if (precisionGps !== undefined) {

@@ -41,8 +41,8 @@ export type ResultadoEscucha =
 let disponibilidadCache: boolean | null = null;
 
 /**
- * ¿El dispositivo puede reconocer voz? (probe real:
- * en Expo Go el módulo nativo no existe → lanza → false)
+ * ¿El dispositivo puede reconocer voz? En Expo Go el
+ * módulo nativo no existe; en desarrollo consulta al motor.
  */
 export async function sttDisponible(): Promise<boolean> {
   if (disponibilidadCache !== null) return disponibilidadCache;
@@ -53,10 +53,8 @@ export async function sttDisponible(): Promise<boolean> {
   }
 
   try {
-    // Llamada benigna que toca el módulo NATIVO
-    const servicios: string[] | undefined =
-      ExpoSpeechRecognitionModule.getSpeechRecognitionServices?.();
-    disponibilidadCache = Array.isArray(servicios) && servicios.length > 0;
+    disponibilidadCache =
+      ExpoSpeechRecognitionModule.isRecognitionAvailable?.() === true;
   } catch {
     disponibilidadCache = false;
   }
@@ -65,10 +63,12 @@ export async function sttDisponible(): Promise<boolean> {
 }
 
 interface OpcionesEscucha {
-  /** ms máximos de espera del resultado (default 12000) */
+  /** ms máximos de espera del resultado (default 30000) */
   tiempoMaximoMs?: number;
   /** idioma BCP-47 (default: es-BO con fallback es-ES) */
   idioma?: string;
+  onInicio?: () => void;
+  onParcial?: (texto: string) => void;
 }
 
 /**
@@ -79,7 +79,7 @@ interface OpcionesEscucha {
 export async function escucharUnaVez(
   opciones?: OpcionesEscucha,
 ): Promise<ResultadoEscucha> {
-  const tiempoMaximoMs = opciones?.tiempoMaximoMs ?? 12_000;
+  const tiempoMaximoMs = opciones?.tiempoMaximoMs ?? 30_000;
   const idioma = opciones?.idioma ?? 'es-BO';
 
   // ─── 1. Disponibilidad del módulo nativo ───
@@ -105,6 +105,8 @@ export async function escucharUnaVez(
   // ─── 3. Flujo de escucha envuelto en promesa ───
   return new Promise<ResultadoEscucha>((resolver) => {
     let resuelto = false;
+    let ultimoTexto = '';
+    let ultimaConfianza: number | null = null;
     const suscripciones: Array<{ remove: () => void }> = [];
     let temporizador: ReturnType<typeof setTimeout> | undefined;
 
@@ -122,13 +124,37 @@ export async function escucharUnaVez(
       resolver(resultado);
     };
 
+    const resolverParcialOSilencio = () => {
+      if (ultimoTexto) {
+        terminar({
+          ok: true,
+          texto: ultimoTexto,
+          confianza: ultimaConfianza,
+        });
+      } else {
+        terminar({ ok: false, razon: 'sin-voz' });
+      }
+    };
+
     // Timeout global
     temporizador = setTimeout(
-      () => terminar({ ok: false, razon: 'timeout' }),
+      () => {
+        if (ultimoTexto) {
+          resolverParcialOSilencio();
+        } else {
+          terminar({ ok: false, razon: 'timeout' });
+        }
+      },
       tiempoMaximoMs,
     );
 
-    // ─── Resultado final ───
+    suscripciones.push(
+      ExpoSpeechRecognitionModule.addListener('start', () => {
+        opciones?.onInicio?.();
+      }),
+    );
+
+    // Resultados parciales y finales usan el mismo evento.
     suscripciones.push(
       ExpoSpeechRecognitionModule.addListener(
         'result',
@@ -136,17 +162,28 @@ export async function escucharUnaVez(
           isFinal?: boolean;
           transcript?: string;
           confidence?: number;
+          results?: Array<{ transcript?: string; confidence?: number }>;
         }) => {
-          const texto = evento?.transcript?.trim() ?? '';
-          if (evento?.isFinal !== false && texto.length > 0) {
-            // confidence = -1 si el motor no lo reporta
-            const confianza =
-              typeof evento.confidence === 'number' && evento.confidence >= 0
-                ? evento.confidence
-                : null;
-            terminar({ ok: true, texto, confianza });
+          const primerResultado = evento?.results?.[0];
+          const texto = (
+            primerResultado?.transcript ?? evento?.transcript ?? ''
+          ).trim();
+          if (!texto) return;
+
+          ultimoTexto = texto;
+          const confianza =
+            primerResultado?.confidence ?? evento?.confidence;
+          ultimaConfianza =
+            typeof confianza === 'number' && confianza >= 0
+              ? confianza
+              : null;
+
+          if (evento?.isFinal === false) {
+            opciones?.onParcial?.(texto);
+            return;
           }
-          // result sin isFinal (intermedios) → seguimos esperando
+
+          terminar({ ok: true, texto, confianza: ultimaConfianza });
         },
       ),
     );
@@ -154,7 +191,7 @@ export async function escucharUnaVez(
     // ─── End sin resultado → silencio ───
     suscripciones.push(
       ExpoSpeechRecognitionModule.addListener('end', () => {
-        terminar({ ok: false, razon: 'sin-voz' });
+        resolverParcialOSilencio();
       }),
     );
 
@@ -166,16 +203,21 @@ export async function escucharUnaVez(
           const codigo = evento?.error ?? '';
 
           // 'no-speech' también llega como error en algunos motores
-          if (codigo === 'no-speech') {
-            terminar({ ok: false, razon: 'sin-voz' });
+          if (codigo === 'no-speech' || codigo === 'speech-timeout') {
+            resolverParcialOSilencio();
             return;
           }
           if (
+            codigo === 'not-allowed' ||
             codigo === 'not-authorized' ||
             codigo === 'service-not-allowed' ||
             codigo === 'audio-capture'
           ) {
             terminar({ ok: false, razon: 'permiso-denegado', detalle: codigo });
+            return;
+          }
+          if (codigo === 'aborted') {
+            terminar({ ok: false, razon: 'cancelado' });
             return;
           }
 
@@ -192,10 +234,13 @@ export async function escucharUnaVez(
     try {
       ExpoSpeechRecognitionModule.start({
         lang: idioma,
-        interimResults: false,
+        interimResults: true,
         maxAlternatives: 1,
         continuous: false,
         requiresOnDeviceRecognition: false,
+        androidIntentOptions: {
+          EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 10_000,
+        },
       });
     } catch (e) {
       terminar({

@@ -10,8 +10,10 @@ import {
   Text,
   View,
 } from 'react-native';
+
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+
 import type { RouteProp } from '@react-navigation/native';
 
 import { registrarCaptura } from '@/api/capturas.api';
@@ -19,9 +21,11 @@ import { PanelResultadoAnalisis } from '@/components/PanelResultadoAnalisis';
 import { colores, tamaños } from '@/constants/tema';
 import { useModoContinuo } from '@/hooks/useModoContinuo';
 import { useTTS } from '@/hooks/useTTS';
+
 import type {
   AppTabsParamList,
 } from '@/navigation/NavigationTypes';
+
 import { obtenerUbicacion } from '@/services/location.service';
 import {
   INFO_TIPO_ANALISIS,
@@ -57,10 +61,20 @@ import { mensajeDeError } from '@/types';
 
 const MAX_HISTORIAL = 5;
 
+interface CapturaPendiente {
+  uri: string;
+  latitud?: number;
+  longitud?: number;
+}
+
 export default function PantallaCamara() {
   const { anunciar } = useTTS();
+
   const navigation = useNavigation<BottomTabNavigationProp<AppTabsParamList>>();
   const route = useRoute<RouteProp<AppTabsParamList, 'Camara'>>();
+
+  const accion = route.params?.accion;
+
 
   // ─── Cámara ───
   const camaraRef = useRef<CameraView>(null);
@@ -76,6 +90,8 @@ export default function PantallaCamara() {
   const [ultimoResultado, setUltimoResultado] = useState<CapturaResponse | null>(null);
   const [historial, setHistorial] = useState<CapturaResponse[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [capturaPendiente, setCapturaPendiente] =
+    useState<CapturaPendiente | null>(null);
 
   // ─── Captura de fotograma para el Modo Continuo (inyectada) ───
   async function capturarFotograma(): Promise<FotogramaTipo | null> {
@@ -123,6 +139,7 @@ export default function PantallaCamara() {
 
   // ═══════════════ CAPTURA PUNTUAL ═══════════════
 
+
   const capturarPuntual = useCallback(async () => {
     if (procesandoCaptura || !camaraLista || modoContinuo.activo) return;
 
@@ -144,8 +161,13 @@ export default function PantallaCamara() {
       const respuesta = await registrarCaptura({
         uri: foto.uri,
         tipoAnalisis: tipoSeleccionado,
+
+  
+
         reconocer: true,
+        accion_app: accion,
         origen: 'CAMARA',
+
         ...(ubicacion && {
           latitud: ubicacion.latitud,
           longitud: ubicacion.longitud,
@@ -155,6 +177,7 @@ export default function PantallaCamara() {
 
       setUltimoResultado(respuesta);
       setHistorial((prev) => [respuesta, ...prev].slice(0, MAX_HISTORIAL));
+
 
       if (respuesta.resumen_voz) {
         anunciar(respuesta.resumen_voz, { forzar: true });
@@ -169,7 +192,41 @@ export default function PantallaCamara() {
     } catch (e) {
       const m = mensajeDeError(e);
       setError(m);
-      anunciar(`Error. ${m}`, { forzar: true });
+      anunciar(`No se pudo enviar la captura. ${m}`, { forzar: true });
+    }
+  }, [accion, anunciar]);
+
+  const capturar = useCallback(async () => {
+    if (procesando || !camaraLista || capturaPendiente) return;
+
+    setProcesando(true);
+    setError(null);
+    anunciar('Capturando', { forzar: true });
+
+    try {
+      const foto = await camaraRef.current?.takePictureAsync({
+        quality: 0.7,
+        skipProcessing: false,
+      });
+
+      if (!foto?.uri) {
+        throw new Error('No se pudo capturar la imagen. Intenta de nuevo.');
+      }
+
+      const ubicacion = await obtenerUbicacion();
+      const captura: CapturaPendiente = {
+        uri: foto.uri,
+        ...(ubicacion && {
+          latitud: ubicacion.latitud,
+          longitud: ubicacion.longitud,
+        }),
+      };
+      setCapturaPendiente(captura);
+      await enviarCaptura(captura);
+    } catch (e) {
+      const m = mensajeDeError(e);
+      setError(m);
+      anunciar(`Error al capturar la imagen. ${m}`, { forzar: true });
     } finally {
       setProcesandoCaptura(false);
     }
@@ -201,7 +258,20 @@ export default function PantallaCamara() {
         { forzar: true },
       );
     }
-  }, [modoContinuo, tipoSeleccionado, anunciar]);
+
+  }, [procesando, camaraLista, capturaPendiente, anunciar, enviarCaptura]);
+
+  const reintentarEnvio = useCallback(async () => {
+    if (!capturaPendiente || procesando) return;
+    setProcesando(true);
+    setError(null);
+    try {
+      await enviarCaptura(capturaPendiente);
+    } finally {
+      setProcesando(false);
+    }
+  }, [capturaPendiente, procesando, enviarCaptura]);
+
 
   // ═══════════════ PERMISOS (S1) ═══════════════
 
@@ -357,6 +427,7 @@ export default function PantallaCamara() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
+
             modoContinuo.activo
               ? 'Captura manual deshabilitada: el asistente continuo está activo'
               : `Capturar y analizar ${info.etiqueta}`
@@ -372,6 +443,7 @@ export default function PantallaCamara() {
             pressed && camaraLista && !modoContinuo.activo && {
               transform: [{ scale: 0.93 }],
             },
+
           ]}
         >
           <View style={estilos.botonInterno}>
@@ -401,10 +473,47 @@ export default function PantallaCamara() {
           contentContainerStyle={estilos.panelContenido}
           nestedScrollEnabled
         >
+
           <PanelResultadoAnalisis
             resultado={ultimoResultado}
             onRepetirVoz={(texto) => anunciar(texto, { forzar: true })}
           />
+
+          {capturaPendiente && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Reintentar el envío de la captura pendiente"
+              accessibilityState={{ busy: procesando, disabled: procesando }}
+              onPress={() => void reintentarEnvio()}
+              disabled={procesando}
+              style={({ pressed }) => [
+                estilos.botonReintentar,
+                pressed && !procesando && { opacity: 0.75 },
+                procesando && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={estilos.textoReintentar}>
+                {procesando ? 'Enviando captura…' : '↻  Reintentar envío'}
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Último resultado */}
+          {ultimoResultado ? (
+            <View style={estilos.resultado}>
+              <View style={estilos.resultadoCabecera}>
+                <Text style={estilos.resultadoTitulo}>
+                  📷 Último análisis
+                </Text>
+                <Text style={estilos.resultadoHora}>
+                  {new Date(
+                    ultimoResultado.fecha_captura,
+                  ).toLocaleTimeString('es', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+              </View>
 
           {/* Historial de la sesión — tocable para re-escuchar */}
           {historial.length > 1 && (
@@ -675,7 +784,107 @@ const estilos = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colores.borde,
   },
-  panelContenido: { padding: tamaños.md, paddingBottom: tamaños.lg },
+
+  panelContenido: {
+    padding: tamaños.md,
+    paddingBottom: tamaños.lg,
+    gap: tamaños.sm,
+  },
+  botonReintentar: {
+    minHeight: tamaños.touchMin,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: tamaños.radioMD,
+    borderWidth: 1,
+    borderColor: colores.advertencia,
+    backgroundColor: colores.advertenciaFondo,
+    paddingHorizontal: tamaños.md,
+  },
+  textoReintentar: {
+    color: colores.advertencia,
+    fontSize: tamaños.fuenteSM,
+    fontWeight: '700',
+  },
+  panelVacio: {
+    color: colores.textoSutil,
+    fontSize: tamaños.fuenteSM,
+    textAlign: 'center',
+    paddingVertical: tamaños.md,
+  },
+  resultado: {
+    backgroundColor: colores.superficie,
+    borderRadius: tamaños.radioMD,
+    padding: tamaños.sm,
+  },
+  resultadoCabecera: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: tamaños.xs,
+  },
+  resultadoTitulo: {
+    color: colores.texto,
+    fontSize: tamaños.fuenteSM,
+    fontWeight: '700',
+  },
+  resultadoHora: {
+    color: colores.textoSutil,
+    fontSize: tamaños.fuenteXS,
+  },
+  resumenCaja: {
+    backgroundColor: colores.superficie,
+    borderRadius: tamaños.radioMD,
+    padding: tamaños.sm,
+    minHeight: tamaños.touchMin,
+    justifyContent: 'center',
+  },
+  resumenTexto: {
+    color: colores.texto,
+    fontSize: tamaños.fuenteSM,
+    lineHeight: 20,
+  },
+  resumenRepetir: {
+    color: colores.textoSutil,
+    fontSize: tamaños.fuenteXS,
+    marginTop: 2,
+  },
+  avisoIA: {
+    color: colores.advertencia,
+    fontSize: tamaños.fuenteXS,
+    marginTop: tamaños.sm,
+  },
+
+  detecciones: { marginTop: tamaños.sm, gap: 6 },
+  deteccionFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: tamaños.sm,
+  },
+  deteccionEtiqueta: {
+    color: colores.texto,
+    fontSize: tamaños.fuenteSM,
+    width: 110,
+  },
+  confianzaBarra: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colores.superficieClara,
+    overflow: 'hidden',
+  },
+  confianzaRelleno: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: colores.primario,
+  },
+  deteccionConfianza: {
+    color: colores.textoSecundario,
+    fontSize: tamaños.fuenteXS,
+    fontWeight: '700',
+    width: 38,
+    textAlign: 'right',
+  },
+
 
   historial: {
     marginTop: tamaños.sm,

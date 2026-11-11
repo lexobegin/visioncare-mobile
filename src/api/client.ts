@@ -3,6 +3,11 @@ import axios, { AxiosError } from 'axios';
 import { ENV } from '@/config/env';
 import { eliminarToken, obtenerToken } from './token';
 
+const apiBaseUrl = ENV.apiUrl
+  .trim()
+  .replace(/([^:]\/)\/+/g, '$1')
+  .replace(/\/+$/, '');
+
 /**
  * ══════════════════════════════════════════════════════
  * Cliente HTTP único de la app móvil (axios).
@@ -17,7 +22,7 @@ import { eliminarToken, obtenerToken } from './token';
  */
 
 export const api = axios.create({
-  baseURL: ENV.apiUrl,
+  baseURL: apiBaseUrl,
   timeout: 30_000,
   headers: { 'Content-Type': 'application/json' },
 });
