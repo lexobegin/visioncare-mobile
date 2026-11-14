@@ -12,10 +12,8 @@ import {
 } from 'react-native';
 
 import { useNavigation, useRoute } from '@react-navigation/native';
-import type {
-  BottomTabNavigationProp,
-  RouteProp,
-} from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 import { registrarCaptura } from '@/api/capturas.api';
 import { PanelResultadoAnalisis } from '@/components/PanelResultadoAnalisis';
@@ -52,6 +50,11 @@ import { mensajeDeError } from '@/types';
  * Pre-configuración por VOZ (params de navegación):
  *   { activarModoContinuo: true }   → activa el asistente al llegar
  *   { tipoAnalisis: 'OCR' }         → pre-selecciona el análisis
+ *   { accion: 'LEER_TEXTO' }        → accion_app del comando de voz
+ *
+ * 🆕 Sprint 3 (FIX pechera): cuando el modo continúa activo, el
+ * <EscudoTactilGlobal/> (RootNavigator) bloquea la pantalla y el
+ * keep-awake la mantiene encendida — el TTS y la háptica siguen.
  * ══════════════════════════════════════════════════════
  */
 

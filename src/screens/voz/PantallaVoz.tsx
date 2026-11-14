@@ -19,7 +19,6 @@ import { colores, tamaños } from '@/constants/tema';
 import { useAuth } from '@/context/AuthContext';
 import { useTTS } from '@/hooks/useTTS';
 import type {
-  AccionAnalisisVisual,
   AppTabsParamList,
 } from '@/navigation/NavigationTypes';
 import {
@@ -33,7 +32,6 @@ import type {
 } from '@react-navigation/bottom-tabs';
 import { mensajeDeError } from '@/types';
 
-import { narracionService } from '@/services/narracion.service';
 import type { TipoAnalisis } from '@/types';
 
 /**
@@ -44,16 +42,22 @@ import type { TipoAnalisis } from '@/types';
  *   2. Texto → POST /voz/interpretar (backend)
  *   3. Respuesta → accion_app SE EJECUTA aquí:
  *        RECONOCER_OBJETOS / CAPTURAR_ENTORNO / LEER_TEXTO
- *          → navega a la Cámara (Tanda 10 ejecuta el análisis)
+ *          → navega a la Cámara (con tipo de análisis)
  *        ABRIR_SOLICITUD_AYUDA / COMPARTIR_UBICACION
  *          → prepara SMS para contacto autorizado (confirmación manual)
- *        VER_HISTORIAL / NINGUNA (desconocida)
+ *        VER_HISTORIAL
+ *          → abre el historial consolidado (🆕 Sprint 3, CU23)
+ *        NINGUNA (desconocida)
  *          → solo respuesta hablada
  *   4. respuesta_voz → TTS (siempre, es la respuesta del sistema)
  *   5. Historial de la sesión (últimos 5)
  *
  * FALLBACK (Expo Go / sin STT): campo de texto con el MISMO
  * flujo — el usuario escribe "que ves" y todo funciona igual.
+ *
+ * 🔧 Sprint 3: correcciones de compilación (parámetro
+ * `tipoAnalisis` de ejecutarAccion, llamada duplicada) y
+ * VER_HISTORIAL ahora navega a la pantalla real.
  * ══════════════════════════════════════════════════════
  */
 
@@ -164,7 +168,7 @@ export default function PantallaVoz() {
 
   /** Ejecuta la accion_app devuelta por el backend */
   const ejecutarAccion = useCallback(
-    async (accion: string) => {
+    async (accion: string, tipoAnalisis?: string | null) => {
       switch (accion) {
         // ─── Flujos de cámara ───
         case 'RECONOCER_OBJETOS':
@@ -190,7 +194,7 @@ export default function PantallaVoz() {
           break;
 
         // ─── Seguridad / ayuda (CU20 — Sprint 2) ───
-r
+
         case 'ABRIR_SOLICITUD_AYUDA':
           // Pre-selecciona EMERGENCIA: un "ayuda" hablado es urgente
           navigation.navigate('Mas', { screen: 'Ayuda', params: { tipoInicial: 'EMERGENCIA' } });
@@ -198,17 +202,17 @@ r
 
         case 'COMPARTIR_UBICACION':
 
-          setEstado('Compartir ubicación estará disponible en el Sprint 3.');
-
           await contactarContactoDeConfianza(accion);
 
           break;
 
-        // ─── Solo informativas ───
+        // ─── 🆕 Sprint 3 ───
         case 'VER_HISTORIAL':
-          setEstado('El historial completo estará disponible en el Sprint 3.');
+          setEstado('Abriendo tu historial de actividades.');
+          navigation.navigate('Mas', { screen: 'Historial' });
           break;
 
+        // ─── Solo informativas ───
         case 'NINGUNA':
         default:
           break;
@@ -266,11 +270,8 @@ r
         );
 
 
-        // Ejecutar la acción (puede navegar con parámetros S2)
-        ejecutarAccion(respuesta.accion_app, respuesta.tipo_analisis);
-
-        // Ejecutar la acción (puede navegar)
-        await ejecutarAccion(respuesta.accion_app);
+        // Ejecutar la acción (puede navegar con parámetros)
+        await ejecutarAccion(respuesta.accion_app, respuesta.tipo_analisis);
 
       } catch (e) {
         const m = mensajeDeError(e);
@@ -478,6 +479,7 @@ r
           <Text style={estilos.ayudaItem}>• "¿De qué color es?" → colores</Text>
           <Text style={estilos.ayudaItem}>• "Ayuda" → contactos de confianza</Text>
           <Text style={estilos.ayudaItem}>• "Captura" → abre la cámara</Text>
+          <Text style={estilos.ayudaItem}>• "Historial" → tus actividades (nuevo)</Text>
         </View>
 
         {/* ─── Historial de la sesión ─── */}
