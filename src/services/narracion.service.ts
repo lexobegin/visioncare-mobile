@@ -1,6 +1,7 @@
 import { AppState } from 'react-native';
 
 import { analizarFotograma } from '@/api/capturas.api';
+import { compartirUbicacion } from '@/api/ayuda.api';
 import type {
   AnalisisContinuoResponse,
   NivelNovedad,
@@ -117,6 +118,12 @@ class NarracionService {
     ts: number;
   } | null = null;
 
+  // ─── 🆕 CU21 — compartir ubicación mientras el modo corre ───
+  // (el asistente activo ES el consentimiento: el usuario lo
+  //  encendió; el personal puede ver dónde está en el mapa web)
+  private ultimoCompartidoMs = 0;
+  private static readonly MIN_ENTRE_PINGS_MS = 60_000;
+
   // ─── Estado observable ───
   private estado: EstadoNarracion = {
     activo: false,
@@ -171,9 +178,14 @@ class NarracionService {
       }
     });
 
-    // Estado con el modo activo (lectura | objetos) — lo pinta el banner
+    // 🆕 FIX T11 (bug real reportado en pruebas): el estado observable
+    // nunca reflejaba la activación — faltaba `activo: true`. El bucle
+    // SÍ corría (flag interno) pero el Switch de la cámara, el chip y
+    // el <EscudoTactilGlobal/> (que leen estado.activo) quedaban en
+    // false → "parece que no se habilitó" y escudo invisible.
     this.estado = {
       ...this.estado,
+      activo: true,
       modo: config.modoLectura ? 'lectura' : 'objetos',
       error: null,
     };
@@ -427,6 +439,23 @@ class NarracionService {
           precisionGps: u.precision ?? undefined,
           ts: ahora,
         };
+
+        // 🆕 CU21 — compartir con el servidor máx. 1 ping/min
+        // (best-effort: si falla, el siguiente ciclo reintenta;
+        //  NO interrumpe el bucle de narración)
+        const hanPasado =
+          ahora - this.ultimoCompartidoMs >=
+          NarracionService.MIN_ENTRE_PINGS_MS;
+        if (hanPasado) {
+          this.ultimoCompartidoMs = ahora;
+          void compartirUbicacion({
+            latitud: u.latitud,
+            longitud: u.longitud,
+            ...(u.precision != null && { precision_metros: u.precision }),
+          }).catch(() => {
+            // sin conexión: el próximo ping lo reintenta
+          });
+        }
       }
     } catch {
       // GPS no disponible: las alertas se persisten sin ubicación

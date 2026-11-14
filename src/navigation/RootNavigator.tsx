@@ -1,9 +1,11 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { View } from 'react-native';
 
 import { useAuth } from '@/context/AuthContext';
 import { useTTS } from '@/hooks/useTTS';
 import { PantallaCargando } from '@/components/PantallaCargando';
+import { EscudoTactilGlobal } from '@/components/EscudoTactil';
 import LoginStack from './LoginStack';
 import AppTabs from './AppTabs';
 import type { RootStackParamList } from './NavigationTypes';
@@ -18,6 +20,11 @@ import type { RootStackParamList } from './NavigationTypes';
  *
  * La transición es automática: al cambiar `autenticado`
  * (login/logout/401 global), el stack se reconstruye.
+ *
+ * Sprint 3: <EscudoTactilGlobal/> se monta una única vez
+ * encima de TODO el árbol (tabs incluidas) — activa el
+ * keep-awake y el bloqueo táctil mientras el Modo Continuo
+ * esté activo (uso en pechera: toques fantasma).
  * ══════════════════════════════════════════════════════
  */
 
@@ -44,22 +51,27 @@ export default function RootNavigator() {
         if (anuncio) anunciar(anuncio);
       }}
     >
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {cargando ? (
-          // ─── Splash de hidratación ───
-          <Stack.Screen name="Cargando">
-            {() => (
-              <PantallaCargando mensaje="Verificando sesión…" />
-            )}
-          </Stack.Screen>
-        ) : autenticado ? (
-          // ─── App protegida ───
-          <Stack.Screen name="App" component={AppTabs} />
-        ) : (
-          // ─── Autenticación ───
-          <Stack.Screen name="Auth" component={LoginStack} />
-        )}
-      </Stack.Navigator>
+      <View style={{ flex: 1 }}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {cargando ? (
+            // ─── Splash de hidratación ───
+            <Stack.Screen name="Cargando">
+              {() => (
+                <PantallaCargando mensaje="Verificando sesión…" />
+              )}
+            </Stack.Screen>
+          ) : autenticado ? (
+            // ─── App protegida ───
+            <Stack.Screen name="App" component={AppTabs} />
+          ) : (
+            // ─── Autenticación ───
+            <Stack.Screen name="Auth" component={LoginStack} />
+          )}
+        </Stack.Navigator>
+
+        {/* Escudo del Modo Continuo (pechera) — cubre toda la app */}
+        {autenticado && !cargando && <EscudoTactilGlobal />}
+      </View>
     </NavigationContainer>
   );
 }

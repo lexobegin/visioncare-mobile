@@ -1,10 +1,15 @@
 /**
  * ══════════════════════════════════════════════════════
- * API de ayuda (CU20) — SPRINT 2.
+ * API de ayuda (CU20 + CU21) — REEMPLAZA el original.
  *
- * solicitarAyuda(): el backend guarda la ubicación, notifica
- * a los contactos autorizados y devuelve mensaje_voz listo
- * para TTS. El GPS es opcional (nunca bloquea la emergencia).
+ * CU20 (Sprint 2): solicitarAyuda() — el backend guarda la
+ * ubicación, notifica a los contactos autorizados y devuelve
+ * mensaje_voz listo para TTS.
+ *
+ * 🆕 CU21 (Sprint 3): compartirUbicacion() — pings GPS del
+ * usuario mientras el asistente continuo está activo o el
+ * toggle "Compartir mi ubicación" está ON. El personal
+ * (ADMIN/INSTITUCION) los ve en el mapa web.
  * ══════════════════════════════════════════════════════
  */
 
@@ -59,6 +64,40 @@ export async function cancelarSolicitud(
 ): Promise<{ mensaje: string }> {
   const { data } = await api.patch<{ mensaje: string }>(
     `/ayuda/solicitudes/${id}/cancelar`,
+  );
+  return data;
+}
+
+/* ═══════════════ 🆕 CU21 — UBICACIÓN COMPARTIDA ═══════════════ */
+
+export interface PingUbicacionPayload {
+  latitud: number;
+  longitud: number;
+  precision_metros?: number;
+  altitud_metros?: number;
+}
+
+export interface PingUbicacionRespuesta {
+  id_ubicacion: number;
+  latitud: number;
+  longitud: number;
+  precision_metros: number | null;
+  fecha_registro: string;
+}
+
+/**
+ * CU21 — Enviar un ping GPS al servidor.
+ * Se llama desde `ubicacion-compartida.service` (toggle manual,
+ * cada 60 s) y desde `narracion.service` (mientras el asistente
+ * continuo está activo). Best-effort: si falla la red NO lanza —
+ * el siguiente ping reintenta.
+ */
+export async function compartirUbicacion(
+  payload: PingUbicacionPayload,
+): Promise<PingUbicacionRespuesta> {
+  const { data } = await api.post<PingUbicacionRespuesta>(
+    '/ayuda/ubicacion',
+    payload,
   );
   return data;
 }

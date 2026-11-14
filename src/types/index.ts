@@ -4,6 +4,7 @@
  *
  * S1 preservado (los imports existentes siguen funcionando)
  * + S2: capturas ampliadas, alertas, ayuda, modo continuo.
+ * + S3: navegación, incidentes, visioncoach, historial, sync.
  * ══════════════════════════════════════════════════════
  */
 
@@ -87,3 +88,71 @@ export type {
   InterpretarComandoPayload,
   ComandoVozResponse,
 } from './voz';
+
+// ─── Navegación (S3, CU24) ───
+export type {
+  ModoNavegacion,
+  EstadoNavegacion,
+  EstadoFinalNavegacion,
+  PuntoNavegacion,
+  Navegacion,
+  CrearNavegacionPayload,
+  AgregarPuntoPayload,
+  FinalizarNavegacionPayload,
+  PuntoNavegacionOfflinePayload,
+  NavegacionOfflinePayload,
+} from './navegacion';
+
+// ─── Incidentes (S3, CU22) ───
+export type {
+  EstadoIncidente,
+  SeveridadIncidente,
+  TipoArchivoEvidencia,
+  EvidenciaIncidente,
+  EvidenciaLocal,
+  Incidente,
+  ActualizarEstadoIncidentePayload,
+  IncidenteQuery,
+} from './incidentes';
+export { TIPOS_INCIDENTE } from './incidentes';
+
+// ─── VisionCoach (S3, CU27–CU33) ───
+export type {
+  CategoriaVc,
+  EjercicioVc,
+  EjerciciosVcQuery,
+  ResultadoVc,
+  SesionVc,
+  ProgresoVc,
+  EstadoDesafioVc,
+  EstadoDesafioPayload,
+  DesafioVc,
+  ActualizarDesafioPayload,
+  InsigniaVc,
+  RegistrarResultadoPayload,
+  ResultadoRegistradoVc,
+  FinalizarSesionPayload,
+  SesionFinalizadaVc,
+} from './visioncoach';
+
+// ─── Historial (S3, CU23) ───
+export type {
+  FuenteActividad,
+  Actividad,
+  HistorialQuery,
+  ResumenActividad,
+} from './historial';
+
+// ─── Sincronización (S3, CU25–CU26) ───
+export type {
+  EntidadSync,
+  CambioSync,
+  CambioResultadoSync,
+  SubirResultadoSync,
+  BajarPayloadSync,
+  PuntoOfflineSync,
+  NavegacionOfflineSync,
+  HistorialOfflineSync,
+  BajarResultadoSync,
+  SincronizacionBitacora,
+} from './sincronizacion';

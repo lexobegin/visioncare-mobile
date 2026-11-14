@@ -12,13 +12,22 @@ import PantallaAlertas from '@/screens/alertas/PantallaAlertas';
 import PantallaAyuda from '@/screens/ayuda/PantallaAyuda';
 import PantallaMisSolicitudes from '@/screens/ayuda/PantallaMisSolicitudes';
 
+// ─── Sprint 3 ───
+import PantallaNavegacion from '@/screens/navegacion/PantallaNavegacion';
+import PantallaHistorial from '@/screens/historial/PantallaHistorial';
+import PantallaVisionCoach from '@/screens/visioncoach/PantallaVisionCoach';
+import PantallaSesionVisionCoach from '@/screens/visioncoach/PantallaSesionVisionCoach';
+import PantallaReportarIncidente from '@/screens/incidentes/PantallaReportarIncidente';
+import PantallaMisIncidentes from '@/screens/incidentes/PantallaMisIncidentes';
+import PantallaSincronizacion from '@/screens/sincronizacion/PantallaSincronizacion';
+
 /**
  * ══════════════════════════════════════════════════════
- * Stack interno de "Más": menú → Perfil (CU04),
- * Accesibilidad (CU03), Contactos (CU05).
- *
- * ⚠️ Las pantallas llegan en las Tandas 7-8 — placeholder
- * temporal (PantallaTemporal) para verificar la navegación.
+ * Stack interno de "Más": menú → Perfil (CU04), Accesibilidad
+ * (CU03), Contactos (CU05), Alertas, Ayuda (S2) y las pantallas
+ * del Sprint 3: Navegación (CU24), Historial (CU23),
+ * VisionCoach (CU27–33), Incidentes (CU22) y Sincronización
+ * (CU25–26).
  * ══════════════════════════════════════════════════════
  */
 
@@ -68,6 +77,42 @@ export default function MasStack() {
         name="MisSolicitudes"
         component={PantallaMisSolicitudes}
         options={{ headerTitle: 'Mis solicitudes' }}
+      />
+
+      <Stack.Screen
+        name="Navegacion"
+        component={PantallaNavegacion}
+        options={{ headerTitle: 'Navegación asistida' }}
+      />
+      <Stack.Screen
+        name="Historial"
+        component={PantallaHistorial}
+        options={{ headerTitle: 'Historial de actividades' }}
+      />
+      <Stack.Screen
+        name="VisionCoach"
+        component={PantallaVisionCoach}
+        options={{ headerTitle: 'VisionCoach' }}
+      />
+      <Stack.Screen
+        name="SesionVisionCoach"
+        component={PantallaSesionVisionCoach}
+        options={{ headerTitle: 'Sesión de entrenamiento' }}
+      />
+      <Stack.Screen
+        name="ReportarIncidente"
+        component={PantallaReportarIncidente}
+        options={{ headerTitle: 'Reportar incidente' }}
+      />
+      <Stack.Screen
+        name="MisIncidentes"
+        component={PantallaMisIncidentes}
+        options={{ headerTitle: 'Mis incidentes' }}
+      />
+      <Stack.Screen
+        name="Sincronizacion"
+        component={PantallaSincronizacion}
+        options={{ headerTitle: 'Sincronización' }}
       />
     </Stack.Navigator>
   );
