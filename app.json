@@ -39,19 +39,20 @@
         }
       ],
       [
-  "expo-splash-screen",
-  {
-    "image": "./assets/splash-icon.png",
-    "imageWidth": 200,
-    "resizeMode": "contain",
-    "backgroundColor": "#0f172a"
-  }
-],
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0f172a"
+        }
+      ],
       "expo-sqlite",
       "expo-secure-store",
       "expo-speech-recognition",
       "expo-status-bar",
-      "expo-splash-screen"
+      "expo-splash-screen",
+      "expo-asset"
     ],
     "extra": {
       "eas": {

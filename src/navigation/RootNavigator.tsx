@@ -10,6 +10,8 @@ import LoginStack from './LoginStack';
 import AppTabs from './AppTabs';
 import type { RootStackParamList } from './NavigationTypes';
 
+import PantallaDemoIaLocal from '@/ia-local/demo/PantallaDemoIaLocal';
+
 /**
  * ══════════════════════════════════════════════════════
  * Stack RAÍZ — decide la rama según la sesión:
@@ -46,6 +48,7 @@ export default function RootNavigator() {
         const anuncios: Record<string, string> = {
           Auth: 'Pantalla de inicio de sesión.',
           App: 'Aplicación principal.',
+          DemoScreenIaLocal: 'Demo de inteligencia artificial local.',
         };
         const anuncio = ruta ? anuncios[ruta] : undefined;
         if (anuncio) anunciar(anuncio);
@@ -62,7 +65,18 @@ export default function RootNavigator() {
             </Stack.Screen>
           ) : autenticado ? (
             // ─── App protegida ───
-            <Stack.Screen name="App" component={AppTabs} />
+            <>
+              <Stack.Screen name="App" component={AppTabs} />
+              <Stack.Screen
+                name="DemoIaLocal"
+                component={PantallaDemoIaLocal}
+                options={{
+                  headerShown: true,
+                  title: 'Demo IA Local (N3)',
+                  // Botón atrás nativo (funciona con TalkBack/VoiceOver)
+                }}
+              />
+            </>
           ) : (
             // ─── Autenticación ───
             <Stack.Screen name="Auth" component={LoginStack} />

@@ -16,6 +16,7 @@ export type RootStackParamList = {
   Cargando: undefined;
   Auth: undefined; // LoginStack (renombrado: evita "Login > Login")
   App: undefined;  // AppTabs (protegido)
+  DemoIaLocal: undefined;
 };
 
 // ─── LoginStack ───
