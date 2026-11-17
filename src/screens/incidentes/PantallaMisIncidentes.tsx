@@ -321,7 +321,7 @@ export default function PantallaMisIncidentes() {
         ListFooterComponent={
           cargandoMas ? (
             <ActivityIndicator style={estilos.pie} color={colores.primario} />
-          ) : null
+          ) : undefined
         }
       />
     </View>
