@@ -4,10 +4,11 @@
  * v2 (paso 2): PERFIL de modelo + inferencia genérica
  * (sigmoid binario o softmax de N clases).
  *
- * Modelo actual `ecoscan-v1` (entrenado en Colab):
+ * Modelo actual `visioncare-bolivia-v1` (entrenado por el equipo en Colab,
+ * convertido del .keras a TF.js — ver README-PASO2.md):
  *   - Entrada  [1, 100, 100, 3] RGB con píxeles 0-255
- *     (la normalización 1/255 va DENTRO del modelo).
- *   - Salida   1 neurona sigmoid → prob de RECICLABLE.
+ *     (la normalización 1/255 va DENTRO del modelo, capa Rescaling).
+ *   - Salida   softmax de 11 clases (5 billetes + 6 monedas) → argmax.
  *
  * Para el modelo del notebook visioncare_v1 (billetes/
  * productos, softmax de N clases): entrena, descarga el zip
@@ -34,9 +35,10 @@ import { toByteArray } from 'base64-js';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy'; // ← Fix 1: evita WARN
 
-import peso1 from '../../assets/models/ecoscan/group1-shard1of2.bin';
-import peso2 from '../../assets/models/ecoscan/group1-shard2of2.bin';
-import modeloJsonAsset from '../../assets/models/ecoscan/model.json';
+import peso1 from '../../assets/models/visioncare/group1-shard1of3.bin';
+import peso2 from '../../assets/models/visioncare/group1-shard2of3.bin';
+import peso3 from '../../assets/models/visioncare/group1-shard3of3.bin';
+import modeloJsonAsset from '../../assets/models/visioncare/model.json';
 
 import type { ResultadoInferencia } from './tipos';
 
@@ -56,12 +58,26 @@ interface PerfilModelo {
   tamanioPesosMb: number;
 }
 
-/** Paso 1 (actual): ecoscan-v1, binario con umbral 0.5 */
+/** Paso 2 (actual): visioncare-bolivia-v1 — softmax de 11 clases */
 const PERFIL: PerfilModelo = {
-  nombre: 'ecoscan-v1',
-  clases: ['ORGÁNICO', 'RECICLABLE'],
-  umbralSigmoid: 0.5,
-  tamanioPesosMb: 4.9,
+  nombre: 'visioncare-bolivia-v1',
+  clases: [
+    // ⚠️ EXACTAMENTE el orden de carpetas del dataset (alfabético) —
+    // es el orden del argmax de la softmax:
+    'Billete de 10 bolivianos',
+    'Billete de 100 bolivianos',
+    'Billete de 20 bolivianos',
+    'Billete de 200 bolivianos',
+    'Billete de 50 bolivianos',
+    'Moneda de 10 centavos',
+    'Moneda de 1 boliviano',
+    'Moneda de 20 centavos',
+    'Moneda de 2 bolivianos',
+    'Moneda de 50 centavos',
+    'Moneda de 5 bolivianos',
+  ],
+  umbralSigmoid: null, // softmax multiclase (argmax)
+  tamanioPesosMb: 9.9, // convertido del .keras (25.5 MB con optimizador → 9.9 MB solo pesos)
 };
 
 // Paso 2 — cuando entrenes visioncare_bolivia_v1 en Colab, cambia a (además
@@ -221,7 +237,7 @@ export async function cargarModeloLocal(): Promise<tf.LayersModel> {
       }
 
       const modelo = await tf.loadLayersModel(
-        crearHandlerEcoscan(modeloJson, [peso1, peso2]),
+        crearHandlerEcoscan(modeloJson, [peso1, peso2, peso3]),
       );
 
       // Fix 4: warmup con dataSync() forzado + try/catch

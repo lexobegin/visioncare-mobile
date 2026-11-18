@@ -80,4 +80,6 @@ export type MasStackParamList = {
   MisIncidentes: undefined;
   /** CU25–CU26 — cola offline + cache descargada */
   Sincronizacion: undefined;
+
+  ModoCalle: undefined;
 };

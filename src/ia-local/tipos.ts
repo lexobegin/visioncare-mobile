@@ -27,11 +27,11 @@ export interface EstadoRed {
 
 /** Resultado de una inferencia del modelo embebido */
 export interface ResultadoInferencia {
-  /** Clase ganadora, p.ej. 'ORGÁNICO' | 'RECICLABLE' */
+  /** Clase ganadora, p.ej. 'ORGÁNICO' | 'RECICLABLE' | '10' | 'apple' */
   etiqueta: string;
   /** Confianza de la clase ganadora (0..1) */
   confianza: number;
-  /** Salida bruta del modelo (prob sigmoid de la clase 1 = RECICLABLE) */
+  /** Salida bruta: prob sigmoid (binario) o prob softmax (multiclase) */
   probabilidadBruta: number;
   /** Tiempo total lectura → decodificado → inferencia, en ms */
   latencia_ms: number;
