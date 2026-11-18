@@ -67,9 +67,10 @@ export default function PantallaLogin() {
   // ─── 1. GOOGLE SIGN-IN REAL (expo-auth-session) ───
   const [, googleResponse, promptGoogleAsync] =
     Google.useAuthRequest({
-      clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || undefined,
+      androidClientId:
+        process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || undefined,
       webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || undefined,
-      redirectUri: 'https://auth.expo.io/@anonymous/visioncare-mobile',
+      clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || undefined,
       scopes: ['profile', 'email'],
     });
 
@@ -127,7 +128,9 @@ export default function PantallaLogin() {
   async function manejarLoginGoogle() {
     if (cargando) return;
 
-    const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+    const clientId =
+      process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+      process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
     if (!clientId) {
       await vibrarAdvertencia();
       const msg =
