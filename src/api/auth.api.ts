@@ -8,6 +8,7 @@
 import type {
   LoginPayload,
   RegistroPayload,
+  SocialLoginPayload,
   TokenResponse,
   Usuario,
 } from '@/types';
@@ -18,6 +19,17 @@ export async function iniciarSesion(
   payload: LoginPayload,
 ): Promise<TokenResponse> {
   const { data } = await api.post<TokenResponse>('/auth/login', payload);
+  return data;
+}
+
+/** CU02 (Social) — Login o Registro con Google One Tap, Apple o Facebook. */
+export async function iniciarSesionSocial(
+  payload: SocialLoginPayload,
+): Promise<TokenResponse> {
+  const { data } = await api.post<TokenResponse>(
+    '/auth/social-login',
+    payload,
+  );
   return data;
 }
 

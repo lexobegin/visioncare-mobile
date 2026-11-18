@@ -19,6 +19,7 @@ interface Props {
   cargando?: boolean;
   deshabilitado?: boolean;
   variante?: Variante;
+  hint?: string;
 }
 
 const FONDO: Record<Variante, string> = {
@@ -39,6 +40,7 @@ export function Boton({
   cargando = false,
   deshabilitado = false,
   variante = 'primario',
+  hint,
 }: Props) {
   const bloqueado = deshabilitado || cargando;
 
@@ -46,6 +48,7 @@ export function Boton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={etiqueta}
+      accessibilityHint={hint}
       accessibilityState={{ busy: cargando, disabled: bloqueado }}
       onPress={onPress}
       disabled={bloqueado}

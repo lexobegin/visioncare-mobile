@@ -366,7 +366,7 @@ export default function PantallaContactos() {
         ListFooterComponent={
           cargandoMas ? (
             <Text style={estilos.cargandoMas}>Cargando más…</Text>
-          ) : null
+          ) : undefined
         }
       />
 

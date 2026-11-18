@@ -30,6 +30,17 @@ export interface LoginPayload {
   contrasena: string;
 }
 
+export interface SocialLoginPayload {
+  proveedor: 'google' | 'apple' | 'facebook' | 'biometrico';
+  token: string;
+  rol?: Rol;
+  perfil?: {
+    nombres?: string;
+    apellidos?: string;
+    fotoUrl?: string;
+  };
+}
+
 export interface RegistroPayload {
   correo: string;
   contrasena: string;

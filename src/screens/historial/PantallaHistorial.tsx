@@ -267,7 +267,7 @@ export default function PantallaHistorial() {
             <Text style={estilos.finLista}>
               — No hay más actividades —
             </Text>
-          ) : null
+          ) : undefined
         }
       />
     </View>

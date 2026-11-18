@@ -9,15 +9,16 @@ import {
 } from 'react-native';
 
 import { colores, estilosComunes, tamaños } from '@/constants/tema';
+import { vibrarNotificacion } from '@/services/haptics.service';
 
 /**
  * ══════════════════════════════════════════════════════
  * Campo de texto accesible (label + error + hint).
  *
- * - accessibilityLabel con la etiqueta (TalkBack/VoiceOver)
- * - error → accessibilityLiveRegion="polite" (anunciado por
- *   el lector de pantalla del sistema) + borde rojo
- * - esContrasena → toggle 👁️ mostrar/ocultar (zona táctil 48)
+ * - accessibilityLabel con la etiqueta y error si aplica
+ * - autocompletado nativo: autoComplete + textContentType
+ * - error → accessibilityLiveRegion="polite" (TalkBack / VoiceOver)
+ * - esContrasena → toggle 👁️ mostrar/ocultar con respuesta háptica
  * ══════════════════════════════════════════════════════
  */
 
@@ -32,6 +33,24 @@ interface Props {
   tipoTeclado?: KeyboardTypeOptions;
   autoCapitalizar?: 'none' | 'sentences' | 'words';
   multilinea?: boolean;
+  autoComplete?:
+    | 'email'
+    | 'password'
+    | 'new-password'
+    | 'current-password'
+    | 'username'
+    | 'name'
+    | 'tel'
+    | 'sms-otp'
+    | 'off';
+  textContentType?:
+    | 'none'
+    | 'emailAddress'
+    | 'password'
+    | 'newPassword'
+    | 'username'
+    | 'telephoneNumber'
+    | 'oneTimeCode';
 }
 
 export function CampoTexto({
@@ -45,6 +64,8 @@ export function CampoTexto({
   tipoTeclado,
   autoCapitalizar = 'none',
   multilinea = false,
+  autoComplete,
+  textContentType,
 }: Props) {
   const [visible, setVisible] = useState(!esContrasena);
 
@@ -70,9 +91,13 @@ export function CampoTexto({
           autoCapitalize={autoCapitalizar}
           autoCorrect={!esContrasena}
           multiline={multilinea}
-          accessibilityLabel={etiqueta}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
+          accessibilityLabel={`${etiqueta}${error ? `. Error: ${error}` : ''}`}
           accessibilityHint={
-            error ? `Error: ${error}` : hint
+            error
+              ? `Error: ${error}`
+              : hint ?? (esContrasena ? 'Introduce tu contraseña' : `Introduce tu ${etiqueta.toLowerCase()}`)
           }
         />
 
@@ -82,7 +107,11 @@ export function CampoTexto({
             accessibilityLabel={
               visible ? 'Ocultar contraseña' : 'Mostrar contraseña'
             }
-            onPress={() => setVisible((v) => !v)}
+            accessibilityHint="Toca dos veces para cambiar si se muestran o protegen los caracteres"
+            onPress={() => {
+              void vibrarNotificacion();
+              setVisible((v) => !v);
+            }}
             hitSlop={8}
             style={estilos.toggle}
           >

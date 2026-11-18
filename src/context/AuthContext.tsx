@@ -11,6 +11,7 @@ import {
 
 import {
   iniciarSesion as iniciarSesionApi,
+  iniciarSesionSocial as iniciarSesionSocialApi,
   obtenerPerfilActual,
   registrarUsuario as registrarUsuarioApi,
 } from '@/api/auth.api';
@@ -29,6 +30,7 @@ import type {
   LoginPayload,
   PreferenciasAccesibilidad,
   RegistroPayload,
+  SocialLoginPayload,
   Usuario,
 } from '@/types';
 
@@ -65,6 +67,8 @@ interface EstadoSesion {
 
 interface AccionesSesion {
   iniciarSesion: (payload: LoginPayload) => Promise<void>;
+  iniciarSesionSocial: (payload: SocialLoginPayload) => Promise<void>;
+  restaurarSesionConToken: (token: string) => Promise<void>;
   registrarse: (payload: RegistroPayload) => Promise<void>;
   cerrarSesion: () => Promise<void>;
   refrescarPerfil: () => Promise<void>;
@@ -155,6 +159,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [establecerSesion],
   );
 
+  // ─── CU02 Social: iniciar sesión con Google / Apple / Facebook / Biometría ───
+  const iniciarSesionSocial = useCallback(
+    async (payload: SocialLoginPayload) => {
+      const respuesta = await iniciarSesionSocialApi(payload);
+      await establecerSesion(respuesta.access_token);
+    },
+    [establecerSesion],
+  );
+
+  // ─── Restaurar sesión con token biométrico almacenado ───
+  const restaurarSesionConToken = useCallback(
+    async (token: string) => {
+      await establecerSesion(token);
+    },
+    [establecerSesion],
+  );
+
   // ─── CU01: registro con auto-login ───
   const registrarse = useCallback(
     async (payload: RegistroPayload) => {
@@ -206,6 +227,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cargando,
       autenticado: usuario !== null,
       iniciarSesion,
+      iniciarSesionSocial,
+      restaurarSesionConToken,
       registrarse,
       cerrarSesion,
       refrescarPerfil,
@@ -216,6 +239,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       preferencias,
       cargando,
       iniciarSesion,
+      iniciarSesionSocial,
+      restaurarSesionConToken,
       registrarse,
       cerrarSesion,
       refrescarPerfil,

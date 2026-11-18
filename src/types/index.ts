@@ -24,6 +24,7 @@ export type {
   UsuarioAuth,
   TokenResponse,
   LoginPayload,
+  SocialLoginPayload,
   RegistroPayload,
   Perfil,
   Usuario,
