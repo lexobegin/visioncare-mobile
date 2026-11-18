@@ -54,7 +54,6 @@ const EMOJIS: Record<string, string> = {
   'ORGÁNICO': '🍌',
   'RECICLABLE': '♻️',
 };
-
 // Las etiquetas del modelo del paso 2 (billetes/productos) caen
 // en el fallback genérico '🏷️'.
 
@@ -192,7 +191,7 @@ export default function PantallaDemoIaLocal() {
       {resultado && (
         <View style={estilos.panel}>
           <Text style={estilos.etiqueta}>
-            {EMOJIS[resultado.etiqueta] ?? '⚠️'} {resultado.etiqueta}
+            {EMOJIS[resultado.etiqueta] ?? '🏷️'} {resultado.etiqueta}
           </Text>
           <Text style={estilos.detalle}>
             confianza {Math.round(resultado.confianza * 100)}% ·{' '}

@@ -157,6 +157,7 @@ export default function PantallaMasMenu() {
         etiqueta="🚧  Reportar incidente (CU22)"
         onPress={() => navigation.navigate('ReportarIncidente')}
       />
+      
 
       {/* ═══════ 3 · MIS DATOS ═══════ */}
       <Seccion titulo="3. Mis registros" />
@@ -187,6 +188,10 @@ export default function PantallaMasMenu() {
             .getParent<NativeStackNavigationProp<RootStackParamList>>()
             ?.navigate('DemoIaLocal');
         }}
+      />
+      <ItemMenu
+        etiqueta="🚧  Modo Calle"
+        onPress={() => navigation.navigate('ModoCalle')}
       />
 
       {/* ═══════ 5 · CUENTA ═══════ */}
