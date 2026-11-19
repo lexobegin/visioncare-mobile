@@ -4,6 +4,7 @@
     "slug": "visioncare-mobile",
     "scheme": "visioncare",
     "version": "0.1.0",
+    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",

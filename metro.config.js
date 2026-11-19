@@ -9,10 +9,14 @@
  */
 
 const { getDefaultConfig } = require('expo/metro-config');
-
+const path = require('path');
 const config = getDefaultConfig(__dirname);
 
 // Shards del modelo embebido TF.js (assets/binarios)
 config.resolver.assetExts.push('bin');
-
+// Mock para react-native-fs (requerido por TensorFlow pero no usado en Expo)
+config.resolver.extraNodeModules = {
+    ...config.resolver.extraNodeModules,
+    'react-native-fs': path.resolve(__dirname, 'mocks/react-native-fs.js'),
+};
 module.exports = config;
