@@ -44,18 +44,23 @@
         }
       ],
       [
-  "expo-splash-screen",
-  {
-    "image": "./assets/splash-icon.png",
-    "imageWidth": 200,
-    "resizeMode": "contain",
-    "backgroundColor": "#0f172a"
-  }
-],
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0f172a"
+        }
+      ],
       "expo-sqlite",
       "expo-secure-store",
       "expo-speech-recognition",
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "80fd76cb-bcac-4394-8cf1-d25b19442a81"
+      }
+    }
   }
 }
