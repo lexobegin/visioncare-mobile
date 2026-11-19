@@ -10,18 +10,24 @@
 //                     (CU21, toggle) · 🚨 Alertas
 //   2) ASISTENCIA  → 🧭 Navegación · 🏋️ VisionCoach · 🚧 Incidente
 //   3) MIS DATOS   → 📋 Mis incidentes · 📜 Historial · 🔄 Sync
-//   4) CUENTA      → 👤 Perfil · 🔊 Accesibilidad · 📞 Contactos
+//   4) DEMOS       → 🤖 IA Local (offline) — Delta N3
+//   5) CUENTA      → 👤 Perfil · 🔊 Accesibilidad · 📞 Contactos
 //                     · 🚪 Cerrar sesión
+//
+// 🆕 ScrollView: el menú creció y en pantallas pequeñas los
+// últimos ítems quedaban fuera del viewport. Todo el contenido
+// va dentro de un ScrollView con paddingBottom para que el
+// último botón (Cerrar sesión) sea alcanzable con scroll.
 //
 // Cada grupo se anuncia al llegar (TTS) para orientar sin ver.
 // ═══════════════════════════════════════════════════════════
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import type { MasStackParamList } from '@/navigation/NavigationTypes';
+import type { MasStackParamList, RootStackParamList } from '@/navigation/NavigationTypes';
 
 import { useAuth } from '@/context/AuthContext';
 import { useTTS } from '@/hooks/useTTS';
@@ -71,7 +77,11 @@ export default function PantallaMasMenu() {
   }
 
   return (
-    <View style={estilos.contenedor}>
+    <ScrollView
+      style={estilos.flex}
+      contentContainerStyle={estilos.contenedor}
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={estilos.titulo}>
         {usuario?.perfil?.nombres ?? usuario?.correo}
       </Text>
@@ -147,6 +157,7 @@ export default function PantallaMasMenu() {
         etiqueta="🚧  Reportar incidente (CU22)"
         onPress={() => navigation.navigate('ReportarIncidente')}
       />
+      
 
       {/* ═══════ 3 · MIS DATOS ═══════ */}
       <Seccion titulo="3. Mis registros" />
@@ -163,8 +174,28 @@ export default function PantallaMasMenu() {
         onPress={() => navigation.navigate('Sincronizacion')}
       />
 
-      {/* ═══════ 4 · CUENTA ═══════ */}
-      <Seccion titulo="4. Cuenta" />
+      {/* ═══════ 4 · DEMOS (Delta N3) ═══════ */}
+      <Seccion titulo="4. Demos" />
+      <ItemMenu
+        etiqueta="🤖  Demo IA Local — offline (N3)"
+        onPress={() => {
+          anunciar(
+            'Abriendo demo de inteligencia artificial local. ' +
+              'Funciona sin internet.',
+            { forzar: true },
+          );
+          navigation
+            .getParent<NativeStackNavigationProp<RootStackParamList>>()
+            ?.navigate('DemoIaLocal');
+        }}
+      />
+      <ItemMenu
+        etiqueta="🚧  Modo Calle"
+        onPress={() => navigation.navigate('ModoCalle')}
+      />
+
+      {/* ═══════ 5 · CUENTA ═══════ */}
+      <Seccion titulo="5. Cuenta" />
       <ItemMenu
         etiqueta="👤  Mi perfil (CU04)"
         onPress={() => navigation.navigate('Perfil')}
@@ -182,7 +213,7 @@ export default function PantallaMasMenu() {
         peligrosa
         onPress={() => void cerrarSesion()}
       />
-    </View>
+    </ScrollView>
   );
 }
 
@@ -213,10 +244,14 @@ function ItemMenu(props: { etiqueta: string; onPress: () => void; peligrosa?: bo
 }
 
 const estilos = StyleSheet.create({
+  flex: { flex: 1, backgroundColor: colores.fondo },
   contenedor: {
-    flex: 1,
-    backgroundColor: colores.fondo,
+    // ⚠️ antes era { flex: 1, padding, gap }
+    // En ScrollView el flex:1 del contenedor rompe el scroll;
+    // se mueve al `style` del ScrollView (estilos.flex) y aquí
+    // solo queda el padding + gap + paddingBottom extra.
     padding: tamaños.lg,
+    paddingBottom: tamaños.xl * 2,
     gap: tamaños.xs,
   },
   titulo: { color: colores.texto, fontSize: tamaños.fuenteXL, fontWeight: '700' },

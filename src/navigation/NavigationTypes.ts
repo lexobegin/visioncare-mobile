@@ -16,6 +16,7 @@ export type RootStackParamList = {
   Cargando: undefined;
   Auth: undefined; // LoginStack (renombrado: evita "Login > Login")
   App: undefined;  // AppTabs (protegido)
+  DemoIaLocal: undefined;
 };
 
 // ─── LoginStack ───
@@ -79,4 +80,6 @@ export type MasStackParamList = {
   MisIncidentes: undefined;
   /** CU25–CU26 — cola offline + cache descargada */
   Sincronizacion: undefined;
+
+  ModoCalle: undefined;
 };

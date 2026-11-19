@@ -20,6 +20,7 @@ import PantallaSesionVisionCoach from '@/screens/visioncoach/PantallaSesionVisio
 import PantallaReportarIncidente from '@/screens/incidentes/PantallaReportarIncidente';
 import PantallaMisIncidentes from '@/screens/incidentes/PantallaMisIncidentes';
 import PantallaSincronizacion from '@/screens/sincronizacion/PantallaSincronizacion';
+import PantallaModoCalle from '@/ia-local/demo/PantallaModoCalle';
 
 /**
  * ══════════════════════════════════════════════════════
@@ -114,6 +115,7 @@ export default function MasStack() {
         component={PantallaSincronizacion}
         options={{ headerTitle: 'Sincronización' }}
       />
+      <Stack.Screen name="ModoCalle" component={PantallaModoCalle} options={{ headerTitle: 'Modo calle'}} />
     </Stack.Navigator>
   );
 }

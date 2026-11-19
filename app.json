@@ -55,7 +55,9 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-speech-recognition",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-splash-screen",
+      "expo-asset"
     ],
     "extra": {
       "eas": {
