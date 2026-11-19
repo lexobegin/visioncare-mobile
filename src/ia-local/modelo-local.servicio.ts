@@ -140,11 +140,13 @@ export async function prepararTensorflow(): Promise<string> {
   if (!tfListo) {
     try {
       await tf.setBackend('rn-webgl');
-    } catch {
+    } catch (e) {
+        console.warn('[IA local] rn-webgl NO disponible:', e);
       // rn-webgl no disponible → cpu puro (JS), lento pero sirve
       try {
         await tf.setBackend('cpu');
-      } catch {
+      } catch (e) {
+        console.warn('[IA local] CPU:', e);
         // sin backends → cargarModeloLocal() reportará el error
       }
     }

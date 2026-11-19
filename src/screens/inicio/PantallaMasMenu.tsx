@@ -91,7 +91,7 @@ export default function PantallaMasMenu() {
       <Seccion titulo="1. Seguridad" />
 
       <ItemMenu
-        etiqueta="🆘  Pedir ayuda ahora (CU20)"
+        etiqueta="🆘  Pedir ayuda ahora"
         peligrosa
         onPress={() => navigation.navigate('Ayuda')}
       />
@@ -115,7 +115,7 @@ export default function PantallaMasMenu() {
           ]}
         >
           <Text style={estilos.itemTexto}>
-            📍  Compartir mi ubicación (CU21)
+            📍  Compartir mi ubicación
           </Text>
           <Text style={estilos.itemSub}>
             {ubicacion.activo
@@ -146,15 +146,15 @@ export default function PantallaMasMenu() {
       {/* ═══════ 2 · ASISTENCIA ═══════ */}
       <Seccion titulo="2. Asistencia" />
       <ItemMenu
-        etiqueta="🧭  Navegación asistida (CU24)"
+        etiqueta="🧭  Navegación asistida"
         onPress={() => navigation.navigate('Navegacion')}
       />
       <ItemMenu
-        etiqueta="🏋️  VisionCoach (CU27-33)"
+        etiqueta="🏋️  VisionCoach"
         onPress={() => navigation.navigate('VisionCoach')}
       />
       <ItemMenu
-        etiqueta="🚧  Reportar incidente (CU22)"
+        etiqueta="🚧  Reportar incidente"
         onPress={() => navigation.navigate('ReportarIncidente')}
       />
       
@@ -166,18 +166,18 @@ export default function PantallaMasMenu() {
         onPress={() => navigation.navigate('MisIncidentes')}
       />
       <ItemMenu
-        etiqueta="📜  Historial de actividades (CU23)"
+        etiqueta="📜  Historial de actividades"
         onPress={() => navigation.navigate('Historial')}
       />
       <ItemMenu
-        etiqueta="🔄  Sincronización (CU25-26)"
+        etiqueta="🔄  Sincronización"
         onPress={() => navigation.navigate('Sincronizacion')}
       />
 
       {/* ═══════ 4 · DEMOS (Delta N3) ═══════ */}
-      <Seccion titulo="4. Demos" />
-      <ItemMenu
-        etiqueta="🤖  Demo IA Local — offline (N3)"
+      <Seccion titulo="4. IA Local" />
+      {false && ( <ItemMenu
+        etiqueta="🤖  Demo IA Local — offline"
         onPress={() => {
           anunciar(
             'Abriendo demo de inteligencia artificial local. ' +
@@ -189,6 +189,7 @@ export default function PantallaMasMenu() {
             ?.navigate('DemoIaLocal');
         }}
       />
+      )}
       <ItemMenu
         etiqueta="🚧  Modo Calle"
         onPress={() => navigation.navigate('ModoCalle')}
@@ -197,15 +198,15 @@ export default function PantallaMasMenu() {
       {/* ═══════ 5 · CUENTA ═══════ */}
       <Seccion titulo="5. Cuenta" />
       <ItemMenu
-        etiqueta="👤  Mi perfil (CU04)"
+        etiqueta="👤  Mi perfil"
         onPress={() => navigation.navigate('Perfil')}
       />
       <ItemMenu
-        etiqueta="🔊  Accesibilidad (CU03)"
+        etiqueta="🔊  Accesibilidad"
         onPress={() => navigation.navigate('Accesibilidad')}
       />
       <ItemMenu
-        etiqueta="📞  Contactos de confianza (CU05)"
+        etiqueta="📞  Contactos de confianza"
         onPress={() => navigation.navigate('Contactos')}
       />
       <ItemMenu

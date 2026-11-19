@@ -3,19 +3,35 @@
  * Motor IA LOCAL (N3-2) — CALLE: personas, vehículos y
  * objetos con distancia aproximada. Sin internet.
  *
- * Motor: COCO-SSD (SSDLite MobileNet V2) PREENTRENADO
- * (no se entrena desde cero — ver README-PASO2B.md):
+ * Motor: COCO-SSD (SSD MobileNet V2) PREENTRENADO
+ * (model.json + 5 shards oficiales de tfjs-models, ~18 MB):
  *   - 80 clases COCO → se agrupan en categorías para el TTS:
  *     PERSONA / VEHICULO / ANIMAL / SEÑAL / OBJETO.
- *   - Entrada: foto JPEG completa [1, H, W, 3] con píxeles
- *     0-255 (la normalización vive DENTRO del grafo).
- *   - Salida (4 tensores, N=100 candidatos):
- *       detection_boxes   [1,N,4]  (ymin,xmin,ymax,xmax normalizado)
- *       detection_classes [1,N]    (ids 1..80)
- *       detection_scores  [1,N]    (0..1)
- *       num_detections    [1]
- *     El orden del array que devuelve tf es el alfabético de los
- *     nodos; se identifican por FORMA + contenido (enteros vs no).
+ *
+ * ⚠️ COMO FUNCIONA ESTE GRAFO REAL (verificado ejecutándolo en
+ * Node con tfjs 4.22, scripts/test-model-node.js):
+ *   - Entrada: tensor INT32 [1, H, W, 3] píxeles 0-255
+ *     (el placeholder es uint8 en TF; tfjs lo expone como
+ *     int32. La normalización [-1,1] vive DENTRO del grafo,
+ *     Preprocessor/mul + Preprocessor/sub, y redimensiona a
+ *     300×300 interno → N de anclas es FIJO).
+ *   - Salidas (2, NO 4 — el grafo NO trae NMS ni
+ *     num_detections):
+ *       salida[0]  scores  [1, 1917, 90]  sigmoid por clase
+ *       salida[1]  cajas   [1, 1917, 1, 4] ymin,xmin,ymax,xmax
+ *                  normalizado 0..1 (geometría de anclas)
+ *     N = 1917 anclas fijo; C = 90 columnas con ids COCO-90
+ *     DISPERSOS (huecos en 12,26,29,30,45,66,68,69,71,83).
+ *   - El NMS y el argmax de clase se hacen AQUÍ EN JS, igual
+ *     que hace el paquete oficial @tensorflow-models/coco-ssd
+ *     (infer() en su src/index.ts): executeAsync sin nombres
+ *     → dataSync de ambas salidas → tf.dispose → argmax por
+ *     ancla → tf.image.nonMaxSuppression(cajas [N,4], puntajes,
+ *     maxOutputSize, iou, scoreThreshold) → índices elegidos.
+ *   - Clase: id = argmax+1 → CLASES_POR_ID (mapa DISPERSO
+ *     1..90, el de la lista oficial). Usar la lista densa de
+ *     80 desalinea clases desde el id 13 (13='stop sign' pero
+ *     la densa en 12 es 'parking meter').
  *
  * DISTANCIA (geométrica, cámara estenopeana):
  *   distancia ≈ (focal_px × altura_real_m) / alto_del_bbox_px
@@ -27,9 +43,10 @@
  *   Calibración: foto de una persona a distancia conocida y
  *   ajustar FOV (ver README-PASO2B.md).
  *
- * Pesos empaquetados en assets/models/calle/ (model.json +
- * group1-shard{1..5}of5.bin, ~18 MB) con el mismo IOHandler
- * propio del servicio v2 (expo-asset + expo-file-system/legacy).
+ * Tamaño de inferencia: cuadrado FIJO 320×320 (mismo shape que
+ * el warmup → rn-webgl reusa los kernels; los bboxes son
+ * normalizados y el mapeo por eje es lineal, así que siguen
+ * válidos sobre la foto ORIGINAL).
  * ══════════════════════════════════════════════════════
  */
 
@@ -72,29 +89,38 @@ export interface OpcionesCalle {
   puntajeMin?: number;
   /** Máximo de objetos a anunciar (defecto 6) */
   maxDetecciones?: number;
-  /** Lado máximo de la foto para inferir (defecto 480 — velocidad) */
+  /** Lado del cuadrado de inferencia (defecto 320 — FIXED, ver header) */
   ladoMax?: number;
   /** FOV horizontal de la cámara en grados (defecto 65) */
   fovGrados?: number;
 }
 
-// ─── Clases COCO (orden canónico de la salida del grafo, 1-indexado) ───
+// ─── Clases COCO-90 DISPERSAS (mapa oficial de coco-ssd) ───
+// La salida del grafo tiene 90 columnas (tras quitar el fondo):
+// argmax j ∈ 0..89 → id COCO = j+1 → nombre por este mapa.
+// ⚠️ NO usar una lista densa de 80: los ids 12,26,29,30,45,66,
+// 68,69,71,83 NO existen y desalinean el resto.
 
-const CLASES_COCO: readonly string[] = [
-  'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train',
-  'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign',
-  'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
-  'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag',
-  'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite',
-  'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
-  'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon',
-  'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot',
-  'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant',
-  'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote',
-  'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
-  'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
-  'hair drier', 'toothbrush',
-];
+const CLASES_POR_ID: Record<number, string> = {
+  1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorcycle', 5: 'airplane',
+  6: 'bus', 7: 'train', 8: 'truck', 9: 'boat', 10: 'traffic light',
+  11: 'fire hydrant', 13: 'stop sign', 14: 'parking meter', 15: 'bench',
+  16: 'bird', 17: 'cat', 18: 'dog', 19: 'horse', 20: 'sheep', 21: 'cow',
+  22: 'elephant', 23: 'bear', 24: 'zebra', 25: 'giraffe', 27: 'backpack',
+  28: 'umbrella', 31: 'handbag', 32: 'tie', 33: 'suitcase', 34: 'frisbee',
+  35: 'skis', 36: 'snowboard', 37: 'sports ball', 38: 'kite',
+  39: 'baseball bat', 40: 'baseball glove', 41: 'skateboard',
+  42: 'surfboard', 43: 'tennis racket', 44: 'bottle', 46: 'wine glass',
+  47: 'cup', 48: 'fork', 49: 'knife', 50: 'spoon', 51: 'bowl',
+  52: 'banana', 53: 'apple', 54: 'sandwich', 55: 'orange', 56: 'broccoli',
+  57: 'carrot', 58: 'hot dog', 59: 'pizza', 60: 'donut', 61: 'cake',
+  62: 'chair', 63: 'couch', 64: 'potted plant', 65: 'bed',
+  67: 'dining table', 70: 'toilet', 72: 'tv', 73: 'laptop', 74: 'mouse',
+  75: 'remote', 76: 'keyboard', 77: 'cell phone', 78: 'microwave',
+  79: 'oven', 80: 'toaster', 81: 'sink', 82: 'refrigerator', 84: 'book',
+  85: 'clock', 86: 'vase', 87: 'scissors', 88: 'teddy bear',
+  89: 'hair drier', 90: 'toothbrush',
+};
 
 // ─── Etiquetas ES + alturas reales aproximadas (metros) ───
 // La altura alimenta la distancia geométrica. Valores de cuerpo
@@ -183,9 +209,9 @@ export function resumenModeloCalle(): {
 } {
   return {
     nombre: 'calle-v1',
-    motor: 'COCO-SSD (SSDLite MobileNet V2, preentrenado)',
-    clasesCoco: CLASES_COCO.length,
-    pesosMb: 17.2,
+    motor: 'COCO-SSD (SSD MobileNet V2 preentrenado, NMS en JS)',
+    clasesCoco: Object.keys(CLASES_POR_ID).length,
+    pesosMb: 18.0,
   };
 }
 
@@ -256,12 +282,17 @@ export async function cargarModeloCalle(): Promise<tf.GraphModel> {
         crearHandlerCalle(modeloJson, [peso1, peso2, peso3, peso4, peso5]),
       );
 
-      // Warmup con un tamaño intermedio (la entrada del grafo es variable)
+      // Warmup EN EL MISMO TAMAÑO FIJO que la inferencia real, dtype
+      // INT32 y con executeAsync (ops dinámicas 'Exit' en el grafo).
       try {
-        tf.tidy(() => {
-          const salida = modelo.predict(tf.zeros([1, 320, 320, 3])) as tf.Tensor;
-          salida.dataSync();
-        });
+        const prueba = tf.zeros([1, 320, 320, 3], 'int32');
+        const salidas = await modelo.executeAsync(prueba);
+        const lista = Array.isArray(salidas) ? salidas : [salidas];
+        for (const t of lista as tf.Tensor[]) {
+          t.dataSync(); // fuerza la ejecución completa del grafo
+          t.dispose();
+        }
+        prueba.dispose();
       } catch (e) {
         console.warn('[IA calle] Warmup falló (no crítico):', e);
       }
@@ -273,75 +304,42 @@ export async function cargarModeloCalle(): Promise<tf.GraphModel> {
   return promesaModeloCalle;
 }
 
-// ─── Separación de las 4 salidas del grafo ───
+// ─── Post-proceso en JS (el grafo NO trae NMS) ───
 
-interface SalidasCalle {
-  cajas: number[]; // [N,4] → ymin,xmin,ymax,xmax normalizado
-  puntajes: number[]; // [N]
-  clases: number[]; // [N] ids 1..80
-  num: number;
+interface AnclasMaximas {
+  puntajes: number[]; // score máximo por ancla
+  ids: number[]; // argmax 0..89 → id COCO = valor+1
+  maxGlobal: number; // mayor score de toda la foto (diagnóstico)
 }
 
 /**
- * Identifica los 4 tensores de salida por FORMA (y contenido como
- * desempate): cajas = último dim 4; num = 1 dim; clases vs puntajes
- * = los ids de clase son enteros en [1,80]. El orden alfabético del
- * grafo (boxes, classes, scores, num) queda como respaldo.
+ * Igual que calculateMaxScores() del paquete oficial coco-ssd:
+ * por cada ancla toma el máximo de sus C columnas de clase.
  */
-function separarSalidasCalle(salidas: tf.Tensor[]): SalidasCalle | null {
-  const aPlano = (t: tf.Tensor): number[] =>
-    Array.from(t.dataSync() as Float32Array);
-
-  let cajasT: tf.Tensor | undefined;
-  let numT: tf.Tensor | undefined;
-  const pares: tf.Tensor[] = [];
-
-  for (const s of salidas) {
-    const forma = s.shape as number[];
-    if (forma.length >= 2 && forma[forma.length - 1] === 4) {
-      cajasT = s;
-    } else if (forma.length === 1) {
-      numT = s;
-    } else {
-      pares.push(s);
+function maximoPorAncla(
+  datosScores: Float32Array,
+  numAnclas: number,
+  numClases: number,
+): AnclasMaximas {
+  const puntajes = new Array<number>(numAnclas);
+  const ids = new Array<number>(numAnclas);
+  let maxGlobal = 0;
+  for (let i = 0; i < numAnclas; i += 1) {
+    let mejor = -1;
+    let idMejor = 0;
+    const base = i * numClases;
+    for (let j = 0; j < numClases; j += 1) {
+      const v = datosScores[base + j];
+      if (v > mejor) {
+        mejor = v;
+        idMejor = j;
+      }
     }
+    puntajes[i] = mejor;
+    ids[i] = idMejor;
+    if (mejor > maxGlobal) maxGlobal = mejor;
   }
-
-  if (!cajasT || !numT || pares.length < 2) {
-    return null;
-  }
-
-  const esEnteros = (vals: number[]): boolean =>
-    vals.length > 0 &&
-    vals.every(
-      (v) => v >= 1 && v <= 80 && Math.abs(v - Math.round(v)) < 1e-4,
-    );
-
-  const va = aPlano(pares[0]);
-  const vb = aPlano(pares[1]);
-  const intA = esEnteros(va);
-  const intB = esEnteros(vb);
-
-  let clasesArr: number[];
-  let puntajesArr: number[];
-  if (intA && !intB) {
-    clasesArr = va;
-    puntajesArr = vb;
-  } else if (intB && !intA) {
-    clasesArr = vb;
-    puntajesArr = va;
-  } else {
-    // Respaldo: orden alfabético del grafo → classes antes que scores
-    clasesArr = va;
-    puntajesArr = vb;
-  }
-
-  return {
-    cajas: aPlano(cajasT),
-    puntajes: puntajesArr,
-    clases: clasesArr,
-    num: aPlano(numT)[0] ?? 0,
-  };
+  return { puntajes, ids, maxGlobal };
 }
 
 // ─── Distancia geométrica (estenopeana) ───
@@ -372,6 +370,9 @@ export function distanciaAproximada(
 /**
  * Analiza una foto (uri local de la cámara) con el detector
  * embebido. Funciona SIN internet — respaldo N3-2 de calle.
+ * Pipeline = el del paquete oficial coco-ssd:
+ *   executeAsync → dataSync de scores y cajas → argmax por
+ *   ancla → nonMaxSuppression en JS → detecciones.
  * Devuelve las detecciones ordenadas por cercanía estimada
  * (la más próxima primero).
  */
@@ -382,11 +383,10 @@ export async function detectarCalle(
   const inicio = Date.now();
   const puntajeMin = opciones.puntajeMin ?? 0.55;
   const maxDetecciones = opciones.maxDetecciones ?? 6;
-  const ladoMax = opciones.ladoMax ?? 480;
+  const lado = opciones.ladoMax ?? 320; // cuadrado FIJO (ver header)
   const fovGrados = opciones.fovGrados ?? 65;
 
   const modelo = await cargarModeloCalle();
-  const backend = tf.getBackend();
 
   // 1) Leer la foto y decodificar (píxeles 0-255 — el grafo
   //    normaliza por dentro; NO reescalar los valores).
@@ -395,57 +395,103 @@ export async function detectarCalle(
   });
   const bytes = toByteArray(base64);
 
-  const resultado = tf.tidy(() => {
+  // Decode + tensor de entrada dentro de tidy; se DEVUELVE `entrada`
+  // para que sobreviva al tidy (decodeJpeg + resize crean tensores
+  // intermedios que tf libera al salir del tidy).
+  const { entrada, altoPx, anchoPx } = tf.tidy(() => {
     const imagen = decodeJpeg(
       bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
         ? bytes
         : new Uint8Array(bytes),
       3,
     );
-    const altoPx = imagen.shape[0] ?? 0;
-    const anchoPx = imagen.shape[1] ?? 0;
 
-    // Reescalar a un lado máx. para velocidad (los bboxes son
-    // normalizados: la escala de inferencia no afecta el cálculo)
-    const escala = Math.min(1, ladoMax / Math.max(altoPx, anchoPx, 1));
-    const altoInf = Math.max(1, Math.round(altoPx * escala));
-    const anchoInf = Math.max(1, Math.round(anchoPx * escala));
-    const entrada =
-      escala < 1
-        ? tf.image
-            .resizeBilinear(imagen.toFloat(), [altoInf, anchoInf])
-            .expandDims(0)
-        : imagen.toFloat().expandDims(0);
-
-    const salidas = modelo.execute(entrada) as tf.Tensor[];
-    const sep = separarSalidasCalle(salidas);
-    const vacio = { cajas: [] as number[], puntajes: [] as number[], clases: [] as number[], num: 0 };
+    // Cuadrado FIJO: mismo shape que el warmup → rn-webgl reusa
+    // los kernels ya compilados. Resize en float y cast a int32
+    // JUSTO antes de ejecutar (el grafo exige image_tensor int32;
+    // píxeles 0-255, la normalización vive por dentro).
+    const entradaCast = tf.cast(
+      tf.image.resizeBilinear(imagen.toFloat(), [lado, lado]).expandDims(0),
+      'int32',
+    );
     return {
-      ...(sep ?? vacio),
-      altoPx,
-      anchoPx,
+      entrada: entradaCast,
+      altoPx: imagen.shape[0] ?? 0,
+      anchoPx: imagen.shape[1] ?? 0,
     };
   });
 
-  // 2) Construir detecciones (fuera de tidy: solo arrays JS)
+  // 2) Forward — 2 salidas: scores [1,1917,90] y cajas [1,1917,1,4].
+  //    Se identifican por última dimensión (4 → cajas) por si el
+  //    orden del array cambia entre versiones de tfjs.
+  const salidas = await modelo.executeAsync(entrada);
+  const listaSalidas = Array.isArray(salidas) ? salidas : [salidas];
+  entrada.dispose();
+
+  let cajasT: tf.Tensor | undefined;
+  let scoresT: tf.Tensor | undefined;
+  for (const s of listaSalidas as tf.Tensor[]) {
+    const forma = s.shape as number[];
+    if (forma.length >= 2 && forma[forma.length - 1] === 4) {
+      cajasT = s;
+    } else {
+      scoresT = s;
+    }
+  }
+
+  if (!cajasT || !scoresT) {
+    listaSalidas.forEach((t) => (t as tf.Tensor).dispose());
+    throw new Error(
+      `Salidas del grafo de calle inesperadas: ${listaSalidas
+        .map((t) => JSON.stringify((t as tf.Tensor).shape))
+        .join(', ')}`,
+    );
+  }
+
+  // 3) Leer a arrays JS y liberar la GPU (igual que el paquete
+  //    oficial: dataSync → tf.dispose(result)).
+  const datosScores = scoresT.dataSync() as Float32Array;
+  const datosCajas = cajasT.dataSync() as Float32Array;
+  const formaScores = scoresT.shape as number[];
+  const numAnclas = formaScores[1] ?? 0;
+  const numClases = formaScores[2] ?? 0;
+  listaSalidas.forEach((t) => (t as tf.Tensor).dispose());
+
+  if (numAnclas === 0 || numClases === 0) {
+    return [];
+  }
+
+  // 4) Argmax por ancla (calculateMaxScores del paquete oficial).
+  const { puntajes: puntajesAncla, ids: idsAncla, maxGlobal } =
+    maximoPorAncla(datosScores, numAnclas, numClases);
+
+  // 5) NMS en JS. tf.image.nonMaxSuppression es un op de CPU puro:
+  //    corre igual aunque el backend sea rn-webgl (así lo hace el
+  //    paquete oficial). iou 0.5 (estándar); scoreThreshold = puntajeMin.
+  const indices = tf.tidy(() => {
+    const cajas2 = tf.tensor2d(Array.from(datosCajas), [numAnclas, 4]);
+    const sel = tf.image.nonMaxSuppression(
+      cajas2,
+      tf.tensor1d(puntajesAncla, 'float32'),
+      maxDetecciones,
+      0.5,
+      puntajeMin,
+    ) as tf.Tensor1D;
+    return Array.from(sel.dataSync() as Int32Array);
+  });
+
+  // 6) Construir detecciones (solo arrays JS). id COCO = argmax+1
+  //    → mapa DISPERSO → nombre EN → etiqueta ES + altura.
   const detecciones: DeteccionCalle[] = [];
-  const n = Math.min(
-    Math.round(resultado.num),
-    resultado.puntajes.length,
-    resultado.clases.length,
-  );
+  for (const idx of indices) {
+    const idCoco = (idsAncla[idx] ?? 0) + 1;
+    const clase = CLASES_POR_ID[idCoco];
+    if (!clase) continue; // hueco COCO-90 que ganó un argmax (raro)
 
-  for (let i = 0; i < n; i += 1) {
-    const puntaje = resultado.puntajes[i] ?? 0;
-    if (puntaje < puntajeMin) continue;
-
-    const id = Math.round(resultado.clases[i] ?? 0);
-    const clase = CLASES_COCO[Math.max(1, Math.min(80, id)) - 1] ?? 'person';
-
-    const y0 = resultado.cajas[i * 4] ?? 0;
-    const x0 = resultado.cajas[i * 4 + 1] ?? 0;
-    const y1 = resultado.cajas[i * 4 + 2] ?? 0;
-    const x1 = resultado.cajas[i * 4 + 3] ?? 0;
+    const y0 = datosCajas[idx * 4] ?? 0;
+    const x0 = datosCajas[idx * 4 + 1] ?? 0;
+    const y1 = datosCajas[idx * 4 + 2] ?? 0;
+    const x1 = datosCajas[idx * 4 + 3] ?? 0;
     const bbox: [number, number, number, number] = [
       Math.max(0, x0),
       Math.max(0, y0),
@@ -457,20 +503,20 @@ export async function detectarCalle(
     detecciones.push({
       etiqueta: datos.es,
       claseCoco: clase,
-      puntaje,
+      puntaje: puntajesAncla[idx] ?? 0,
       categoria: categoriaDeClase(clase),
       bboxNormalizado: bbox,
       distanciaM: distanciaAproximada(
         bbox,
         datos.alturaM,
-        resultado.anchoPx,
-        resultado.altoPx,
+        anchoPx,
+        altoPx,
         fovGrados,
       ),
     });
   }
 
-  // 3) Prioridad: lo más CERCANO primero (menor distancia);
+  // 7) Prioridad: lo más CERCANO primero (menor distancia);
   //    sin distancia, área mayor del bbox = más cerca.
   detecciones.sort((a, b) => {
     const da = a.distanciaM ?? Infinity;
@@ -484,8 +530,11 @@ export async function detectarCalle(
   });
 
   const finales = detecciones.slice(0, maxDetecciones);
-  void backend;
-  void inicio; // (latencia disponible para UI si se necesita)
+  console.log(
+    `[IA calle] ${Date.now() - inicio} ms · backend ${tf.getBackend()} · ` +
+      `anclas ${numAnclas}x${numClases} · maxScore ${maxGlobal.toFixed(2)} · ` +
+      `${finales.length} detecciones ${finales.map((d) => d.etiqueta).join(',')}`,
+  );
   return finales;
 }
 

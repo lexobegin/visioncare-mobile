@@ -156,7 +156,7 @@ export default function PantallaModoCalle() {
 
   return (
     <View style={estilos.raiz}>
-      <Text style={estilos.titulo}>🛣️ MODO CALLE — detector embebido (N3-2)</Text>
+      <Text style={estilos.titulo}>🛣️ MODO CALLE — detector embebido</Text>
       <Text style={estilos.subtitulo}>
         {info.nombre} · {info.motor} · {info.clasesCoco} clases ·{' '}
         {info.pesosMb} MB · corre sin internet
@@ -168,7 +168,7 @@ export default function PantallaModoCalle() {
           <Text style={estilos.chipTexto}>
             {conectado
               ? `🌐 internet ${tipo ?? ''}`
-              : '✈️ sin internet → N3-2'}
+              : '✈️ sin internet'}
           </Text>
         </View>
         <View style={estilos.chip}>
